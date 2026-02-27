@@ -1,0 +1,45 @@
+# LocalStack emulates AWS services locally so you can develop and test
+# without an AWS account or incurring costs.
+# Services emulated: Lambda, DynamoDB, SQS, SNS, EventBridge, Step Functions
+
+services:
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"         # LocalStack gateway (all services via this port)
+      - "4510-4559:4510-4559"
+    environment:
+      - SERVICES=lambda,dynamodb,sqs,sns,events,stepfunctions,iam,logs,xray
+      - DEBUG=0
+      - LAMBDA_EXECUTOR=docker  # Run Lambda functions in Docker containers
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - PERSISTENCE=1       # Persist state across restarts
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  setup:
+    image: amazon/aws-cli:2.15.0
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_ENDPOINT_URL=http://localstack:4566
+    volumes:
+      - ./scripts:/scripts
+    entrypoint: ["/bin/bash", "/scripts/local_setup.sh"]
+
+volumes:
+  localstack_data:

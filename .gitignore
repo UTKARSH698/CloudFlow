@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.coverage
+coverage.xml
+.pytest_cache/
+
+# CDK
+infrastructure/cdk.out/
+cdk-outputs.json
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# LocalStack
+localstack_data/
+
+# OS
+.DS_Store
+Thumbs.db
