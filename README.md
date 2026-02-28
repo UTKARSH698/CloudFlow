@@ -32,6 +32,7 @@
 | [Design Tradeoffs](#key-design-decisions--tradeoffs) | Why SAGA over 2PC, why DynamoDB over Postgres |
 | [Security](#security) | Input validation, IAM least-privilege, no secrets in code |
 | [How To Run Locally](#quick-start) | Setup + test commands (Windows & Linux) |
+| [API Reference](#api-reference) | Request/response examples for all 4 outcome types |
 | [TECHNICAL.md](./TECHNICAL.md) | 8-section deep-dive for full architecture analysis |
 
 ---
@@ -40,6 +41,10 @@
 
 > **Interactive Streamlit dashboard** running against LocalStack — all 4 distributed systems scenarios in action.
 > Run locally: `.\run.ps1 local-up` then `.\run.ps1 dashboard`
+
+### Full Flow — 20-second Demo
+![CloudFlow Demo](demo/demo.gif)
+> Dashboard startup → Place order (CONFIRMED) → Force Failure (COMPENSATED with inventory rollback) → Trip circuit breaker (OPEN fast-fail) → Oversell attempt (INSUFFICIENT_STOCK)
 
 ### Scenario 1 — Happy Path (SAGA completes end-to-end)
 ![Happy Path](demo/demo-01-happy-path.png)
@@ -217,6 +222,20 @@ See [Performance Evaluation](#performance-evaluation) below for the full benchma
 ---
 
 ## Key Design Decisions & Tradeoffs
+
+### Decision Summary
+
+| Decision | Chosen Approach | Core Reason | Trade-off Accepted |
+|---|---|---|---|
+| **Distributed transaction** | SAGA + Step Functions | Explicit, auditable compensation — critical for money flows | Central orchestrator required; choreography avoided |
+| **Database design** | Separate DynamoDB table per service | Service ownership enforced at infra level; independent scaling | No cross-service joins; app-layer aggregation needed |
+| **Idempotency store** | DynamoDB `attribute_not_exists` | Atomic check-and-set at DB level; no extra infrastructure | +1 read per request; TTL expiry after 24h |
+| **Circuit breaker state** | DynamoDB (not Lambda memory) | Shared across entire Lambda fleet; survives cold starts | +6ms per payment call for the `GetItem` |
+| **Local development** | LocalStack on Docker | Zero AWS cost during dev and CI; same API surface | ~6× slower than real DynamoDB; not production equivalent |
+| **Event routing** | Step Functions for SAGA + EventBridge for side effects | Orchestration where compensation matters; choreography for non-critical events | Two event systems to understand |
+| **Amount precision** | Integer cents (no floats) | Eliminates floating-point rounding errors in financial math | Client-side conversion required for display |
+
+---
 
 ### Distributed Transaction Approach Comparison
 
@@ -423,9 +442,103 @@ make demo               # Submit a sample order end-to-end
 
 ---
 
+## API Reference
+
+All endpoints accept and return `application/json`. Deployed via API Gateway; test locally with `.\run.ps1 local-up` + `.\run.ps1 demo`.
+
+### POST /orders — Place an order
+
+**Request:**
+```json
+{
+  "customer_id": "cust-001",
+  "items": [
+    { "product_id": "KEYBD-01", "quantity": 1, "unit_price_cents": 8999 }
+  ]
+}
+```
+
+**Response — 202 Accepted (SAGA started):**
+```json
+{ "order_id": "ord-abc-123", "status": "PENDING" }
+```
+> SAGA runs asynchronously. Poll `GET /orders/{order_id}` for final status.
+
+---
+
+### GET /orders/{order_id} — Get order status
+
+**Happy path — `CONFIRMED`:**
+```json
+{
+  "order_id": "ord-abc-123",
+  "status": "CONFIRMED",
+  "customer_id": "cust-001",
+  "total_cents": 8999,
+  "events": [
+    { "type": "ORDER_CREATED",   "timestamp": "2024-01-15T10:30:00.012Z" },
+    { "type": "STOCK_RESERVED",  "timestamp": "2024-01-15T10:30:00.047Z" },
+    { "type": "PAYMENT_CHARGED", "timestamp": "2024-01-15T10:30:00.145Z" },
+    { "type": "ORDER_CONFIRMED", "timestamp": "2024-01-15T10:30:00.167Z" }
+  ]
+}
+```
+
+**Payment declined — `COMPENSATED` (SAGA rolled back):**
+```json
+{
+  "order_id": "ord-def-456",
+  "status": "COMPENSATED",
+  "failure_reason": "PAYMENT_DECLINED",
+  "events": [
+    { "type": "ORDER_CREATED",     "timestamp": "2024-01-15T10:30:00.012Z" },
+    { "type": "STOCK_RESERVED",    "timestamp": "2024-01-15T10:30:00.047Z" },
+    { "type": "PAYMENT_FAILED",    "timestamp": "2024-01-15T10:30:00.063Z" },
+    { "type": "STOCK_RELEASED",    "timestamp": "2024-01-15T10:30:00.078Z" },
+    { "type": "ORDER_COMPENSATED", "timestamp": "2024-01-15T10:30:00.110Z" }
+  ]
+}
+```
+
+**Circuit breaker open — 503:**
+```json
+{
+  "error": "PAYMENT_PROVIDER_UNAVAILABLE",
+  "retry_after_seconds": 57,
+  "message": "Circuit breaker OPEN — fast-failing to prevent cascade timeout"
+}
+```
+
+**Insufficient stock — 409:**
+```json
+{
+  "error": "INSUFFICIENT_STOCK",
+  "product_id": "KEYBD-01",
+  "requested": 2,
+  "available": 1
+}
+```
+
+---
+
 ## Performance Evaluation
 
 > **Tool:** `scripts/load_test.py` · **Target:** LocalStack DynamoDB · **Machine:** Windows 11 AMD64
+
+### At a Glance — 10 threads, 50 orders
+
+```
+Metric           Result      Visual (each █ ≈ 100ms or 100 req/min)
+─────────────────────────────────────────────────────────────────────
+Throughput       1,100/min   ███████████
+P50 latency         47ms     ████▌
+P95 latency         89ms     ████████▉
+P99 latency        120ms     ████████████
+Test suite      30 tests     ✅ all passing, <30s
+─────────────────────────────────────────────────────────────────────
+LocalStack is ~6× slower than real AWS DynamoDB (8ms vs 50ms writes).
+Correctness properties — idempotency, compensation, atomic writes — are identical.
+```
 
 ### Latency per Request — Scatter Plot
 
