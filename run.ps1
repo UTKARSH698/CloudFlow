@@ -78,6 +78,13 @@ function Invoke-Bootstrap {
     finally { Pop-Location }
 }
 
+function Invoke-Dashboard {
+    Write-Header "Starting CloudFlow dashboard..."
+    Write-Host "Opening http://localhost:8501" -ForegroundColor Green
+    Write-Host "(Requires LocalStack running — run '.\run.ps1 local-up' first)" -ForegroundColor Yellow
+    streamlit run "$Root\dashboard.py"
+}
+
 function Invoke-Demo {
     Write-Header "Submitting a demo order..."
     $env:PYTHONPATH = "$Root\services"
@@ -105,6 +112,7 @@ function Invoke-Help {
     Write-Host "  .\run.ps1 cdk-bootstrap    Bootstrap CDK (run once per account)"
     Write-Host "  .\run.ps1 deploy           Deploy all stacks to AWS"
     Write-Host "  .\run.ps1 diff             Show CDK diff"
+    Write-Host "  .\run.ps1 dashboard        Launch Streamlit live demo (needs LocalStack)"
     Write-Host "  .\run.ps1 demo             Submit a sample order end-to-end"
     Write-Host "  .\run.ps1 clean            Remove build artifacts"
     Write-Host ""
@@ -120,6 +128,7 @@ switch ($Command) {
     "deploy"           { Invoke-Deploy }
     "diff"             { Invoke-Diff }
     "cdk-bootstrap"    { Invoke-Bootstrap }
+    "dashboard"        { Invoke-Dashboard }
     "demo"             { Invoke-Demo }
     "clean"            { Invoke-Clean }
     "help"             { Invoke-Help }
