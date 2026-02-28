@@ -272,6 +272,19 @@ consistency only where business rules require it, eventual consistency everywher
 
 ## Security
 
+### Brief Threat Model
+
+| Threat | Where It Bites | Mitigation | Tested |
+|---|---|---|---|
+| **Duplicate requests** | SQS delivers at-least-once; client retries | DynamoDB idempotency table — `attribute_not_exists` atomic check-and-set per `order_id` | `test_duplicate_reservation_is_idempotent` |
+| **Slow / failed payment API** | One hung provider call blocks the thread; cascade to all orders | Circuit breaker (state in DynamoDB, survives Lambda cold starts) — opens after 3 failures, fast-fails for 60s | `test_circuit_breaker_open_fast_fails` |
+| **Stock oversell** | Two threads reserve the last item simultaneously | DynamoDB conditional write — `quantity >= requested` enforced atomically; one wins, one gets `ConditionalCheckFailedException` | `test_reserve_fails_on_insufficient_stock` |
+| **Partial saga failure** | Lambda crashes between reserve and charge | Step Functions checkpoints each step — retries from last successful state, never from the beginning | Compensation path integration tests |
+| **Forged / tampered order** | Client sends manipulated `total_cents` or negative quantity | Pydantic validation rejects at API boundary; amounts recalculated server-side, never trusted from input | Input validation schema |
+| **Cross-service data access** | Inventory Lambda reads the payments table | IAM least-privilege — each Lambda role grants `dynamodb:*` only on its own table ARN | CDK IAM policy per stack |
+
+> The full STRIDE analysis (Spoofing, Tampering, Repudiation, Info Disclosure, DoS, Elevation) is at the [bottom of this file](#threat-model).
+
 ### Input Validation
 All requests are validated via Pydantic schemas before any database operation:
 ```python
