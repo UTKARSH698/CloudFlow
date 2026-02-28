@@ -23,6 +23,7 @@
 
 | Section | What You'll Find |
 |---|---|
+| [Live Demo](#live-demo) | 4 screenshots of the dashboard — all distributed systems scenarios |
 | [Architecture](#architecture) | Mermaid diagram — full system at a glance |
 | [How the SAGA Works](#distributed-systems-concepts) | SAGA, idempotency, circuit breaker, event sourcing |
 | [Failure Scenarios](#failure-scenarios--recovery) | Every failure mode + how the system recovers |
@@ -32,6 +33,29 @@
 | [Security](#security) | Input validation, IAM least-privilege, no secrets in code |
 | [How To Run Locally](#quick-start) | Setup + test commands (Windows & Linux) |
 | [TECHNICAL.md](./TECHNICAL.md) | 8-section deep-dive for full architecture analysis |
+
+---
+
+## Live Demo
+
+> **Interactive Streamlit dashboard** running against LocalStack — all 4 distributed systems scenarios in action.
+> Run locally: `.\run.ps1 local-up` then `.\run.ps1 dashboard`
+
+### Scenario 1 — Happy Path (SAGA completes end-to-end)
+![Happy Path](demo/demo-01-happy-path.png)
+> Full SAGA trace: Create Order → Reserve Inventory → Charge Payment → Confirm. Each step timed independently. Order status shows `CONFIRMED`, inventory count decrements atomically.
+
+### Scenario 2 — Payment Failure + Automatic Compensation
+![Payment Compensation](demo/demo-02-compensation.png)
+> Payment deliberately declined. Step Functions triggers the compensation path: inventory is released back, order marked `COMPENSATED`. No stock held without a successful charge.
+
+### Scenario 3 — Circuit Breaker Fast-Fail
+![Circuit Breaker Open](demo/demo-03-circuit-breaker.png)
+> Circuit breaker manually tripped to `OPEN`. Subsequent orders fail in < 1ms without touching the payment provider — preventing a cascade timeout across the entire Lambda fleet.
+
+### Scenario 4 — Oversell Protection
+![Oversell Protection](demo/demo-04-oversell.png)
+> Order quantity exceeds available stock. DynamoDB `ConditionalCheckFailedException` fires atomically — no overselling even under concurrent requests. Returns `INSUFFICIENT_STOCK` immediately.
 
 ---
 
