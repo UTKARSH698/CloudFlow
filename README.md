@@ -194,6 +194,19 @@ See [Performance Evaluation](#performance-evaluation) below for the full benchma
 
 ## Key Design Decisions & Tradeoffs
 
+### Distributed Transaction Approach Comparison
+
+| Approach | Pros | Cons | Cloud Fit |
+|---|---|---|---|
+| **SAGA + Orchestration** ✅ | Explicit flow, testable compensation, full audit trail, visible in one diagram | Central coordinator required; more moving parts | Excellent — no distributed locks, works with Lambda |
+| Event Choreography | Loose coupling; services are fully independent | Implicit rollback; hard to debug across 4 services; dangerous when money is involved | Good for simple flows with no compensation |
+| Two-Phase Commit (2PC) | Strong atomicity; familiar from relational DBs | Distributed locks kill throughput; coordinator crash = system stuck; AWS Lambda can't hold connections | Poor — designed for monoliths with persistent DB connections |
+| Outbox Pattern | Reliable event publishing; eliminates dual-write problem | Requires CDC or polling; extra operational overhead | Complements SAGA but solves a different problem |
+
+CloudFlow uses **SAGA + Orchestration** because money flows require visible, auditable, testable rollback — not implicit event chains that are difficult to trace when they fail.
+
+---
+
 ### Why SAGA instead of Two-Phase Commit (2PC)?
 
 **2PC problems:**
