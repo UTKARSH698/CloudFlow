@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import streamlit as st
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 # ── Config ─────────────────────────────────────────────────────────────────
@@ -26,11 +27,11 @@ os.environ.update({
     "AWS_SECRET_ACCESS_KEY": "test",
 })
 
-T_INVENTORY    = "cloudflow-inventory"
-T_ORDERS       = "cloudflow-orders"
-T_RESERVATIONS = "cloudflow-reservations"
-T_PAYMENTS     = "cloudflow-payments"
-T_CB           = "cloudflow-circuit-breaker"
+T_INVENTORY    = "demo-inventory"
+T_ORDERS       = "demo-orders"
+T_RESERVATIONS = "demo-reservations"
+T_PAYMENTS     = "demo-payments"
+T_CB           = "demo-circuit-breaker"
 
 DEMO_PRODUCTS = [
     {"product_id": "LAPTOP-01", "name": "Dev Laptop Pro",  "quantity": Decimal("10"), "price_cents": Decimal("149900")},
@@ -39,13 +40,15 @@ DEMO_PRODUCTS = [
 ]
 
 # ── AWS clients ────────────────────────────────────────────────────────────
+_FAST = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1})
+
 @st.cache_resource
 def _db():
-    return boto3.resource("dynamodb", endpoint_url=ENDPOINT, region_name=REGION)
+    return boto3.resource("dynamodb", endpoint_url=ENDPOINT, region_name=REGION, config=_FAST)
 
 @st.cache_resource
 def _dbc():
-    return boto3.client("dynamodb", endpoint_url=ENDPOINT, region_name=REGION)
+    return boto3.client("dynamodb", endpoint_url=ENDPOINT, region_name=REGION, config=_FAST)
 
 def _tbl(name: str):
     return _db().Table(name)
@@ -239,14 +242,14 @@ st.title("☁️ CloudFlow — Live SAGA Demo")
 st.caption("Distributed transaction processing · AWS Step Functions + DynamoDB · LocalStack emulation")
 
 # Connection check
-try:
-    ensure_tables()
-except Exception as e:
-    st.error(
-        f"**LocalStack not reachable.**\n\n"
-        f"Start it first:\n```\n.\\run.ps1 local-up\n```\n\nError: `{e}`"
-    )
-    st.stop()
+with st.spinner("Connecting to LocalStack..."):
+    try:
+        ensure_tables()
+    except Exception as e:
+        st.error("**LocalStack is not running.** Start it in a separate terminal first:")
+        st.code(".\\run.ps1 local-up", language="powershell")
+        st.caption(f"Then refresh this page. Error: `{e}`")
+        st.stop()
 
 st.success("🟢 Connected to LocalStack", icon="✅")
 
@@ -355,7 +358,7 @@ else:
     status_icon = {"CONFIRMED": "✅", "COMPENSATED": "↩️", "FAILED": "❌", "PENDING": "🔵"}
     rows = [
         {
-            "Order ID":   o["order_id"],
+            "Order ID":   o.get("order_id", "—"),
             "Customer":   o.get("customer_id", ""),
             "Product":    o.get("product_id", ""),
             "Qty":        int(o.get("quantity", 0)),
@@ -363,6 +366,7 @@ else:
             "Created":    o.get("created_at", "")[:19].replace("T", " "),
         }
         for o in orders
+        if o.get("order_id")
     ]
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
@@ -371,6 +375,21 @@ with st.sidebar:
     st.header("⚙️ Controls")
 
     if st.button("🔄 Refresh Data", use_container_width=True):
+        st.rerun()
+
+    if st.button("🗑️ Reset All Data", use_container_width=True, help="Drop and recreate all tables with fresh demo data"):
+        client = _dbc()
+        for t in [T_INVENTORY, T_ORDERS, T_RESERVATIONS, T_PAYMENTS, T_CB]:
+            try:
+                client.delete_table(TableName=t)
+                client.get_waiter("table_not_exists").wait(TableName=t)
+            except Exception:
+                pass
+        st.cache_resource.clear()
+        ensure_tables()
+        st.session_state.pop("trace", None)
+        st.session_state.pop("last_order_id", None)
+        st.success("Reset complete.")
         st.rerun()
 
     auto = st.checkbox("Auto-refresh every 5s")
