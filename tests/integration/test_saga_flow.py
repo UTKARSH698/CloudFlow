@@ -259,3 +259,102 @@ class TestOrderRepository:
         assert "CONFIRMED" in statuses
         assert "PAYMENT_CHARGED" in statuses
         assert len(history) == 3
+
+
+# ---------------------------------------------------------------------------
+# SAGA Compensation Path
+# ---------------------------------------------------------------------------
+
+class TestSagaCompensation:
+
+    def test_full_compensation_path(self, ddb):
+        """
+        Simulates the SAGA compensation path:
+          1. Reserve inventory (Step 1 succeeds)
+          2. Payment fails (Step 2 fails)
+          3. Release inventory (compensation runs)
+          4. Verify stock fully restored
+
+        In production, Step Functions triggers release() automatically
+        when charge() returns success=False or raises an exception.
+        """
+        from inventory_service.handler import handler
+
+        product_id = f"comp-prod-{uuid.uuid4().hex[:8]}"
+        ddb.Table("cloudflow-inventory").put_item(Item={
+            "product_id": product_id,
+            "quantity": 10,
+            "unit_price_cents": 500,
+        })
+
+        order_id = f"order-{uuid.uuid4()}"
+
+        # Step 1: Reserve inventory (succeeds)
+        reserve = handler({
+            "action": "reserve",
+            "order_id": order_id,
+            "items": [{"product_id": product_id, "quantity": 5, "unit_price_cents": 500}],
+            "correlation_id": str(uuid.uuid4()),
+        }, None)
+        assert reserve["success"] is True
+        reservation_id = reserve["reservation_id"]
+
+        # Verify stock decremented
+        stock = int(ddb.Table("cloudflow-inventory").get_item(
+            Key={"product_id": product_id})["Item"]["quantity"])
+        assert stock == 5  # 10 - 5
+
+        # Step 2: Payment fails (simulated) → Step Functions calls compensation
+        release = handler({
+            "action": "release",
+            "order_id": order_id,
+            "reservation_id": reservation_id,
+            "correlation_id": str(uuid.uuid4()),
+        }, None)
+        assert release["success"] is True
+
+        # Stock fully restored — no money charged, no inventory held
+        stock_after = int(ddb.Table("cloudflow-inventory").get_item(
+            Key={"product_id": product_id})["Item"]["quantity"])
+        assert stock_after == 10
+
+        # Cleanup
+        ddb.Table("cloudflow-inventory").delete_item(Key={"product_id": product_id})
+
+    def test_compensation_is_idempotent(self, ddb):
+        """
+        Releasing the same reservation twice must not double-restore stock.
+        Step Functions may retry the compensation step on transient failures.
+        """
+        from inventory_service.handler import handler
+
+        product_id = f"idem-prod-{uuid.uuid4().hex[:8]}"
+        ddb.Table("cloudflow-inventory").put_item(Item={
+            "product_id": product_id,
+            "quantity": 8,
+            "unit_price_cents": 200,
+        })
+
+        order_id = f"order-{uuid.uuid4()}"
+        reserve = handler({
+            "action": "reserve",
+            "order_id": order_id,
+            "items": [{"product_id": product_id, "quantity": 3, "unit_price_cents": 200}],
+            "correlation_id": str(uuid.uuid4()),
+        }, None)
+        reservation_id = reserve["reservation_id"]
+
+        # Release twice (simulates Step Functions retry on transient error)
+        r1 = handler({"action": "release", "order_id": order_id, "reservation_id": reservation_id, "correlation_id": "c1"}, None)
+        r2 = handler({"action": "release", "order_id": order_id, "reservation_id": reservation_id, "correlation_id": "c1"}, None)
+
+        assert r1["success"] is True
+        assert r2["success"] is True
+
+        # Stock must be 8, not 11 (not double-added)
+        stock = int(ddb.Table("cloudflow-inventory").get_item(
+            Key={"product_id": product_id})["Item"]["quantity"])
+        assert stock == 8
+
+        # Cleanup
+        ddb.Table("cloudflow-inventory").delete_item(Key={"product_id": product_id})

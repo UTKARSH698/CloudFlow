@@ -30,8 +30,8 @@ from shared.idempotency import idempotent
 
 patch_all()
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from shared.logger import get_logger
+logger = get_logger(__name__)
 
 PAYMENTS_TABLE = os.environ.get("PAYMENTS_TABLE", "cloudflow-payments")
 PAYMENT_PROVIDER_URL = os.environ.get("PAYMENT_PROVIDER_URL", "https://api.payment-mock.internal")

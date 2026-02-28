@@ -28,8 +28,8 @@ from .repository import OrderRepository
 # Patch boto3 clients for X-Ray distributed tracing
 patch_all()
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from shared.logger import get_logger
+logger = get_logger(__name__)
 
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]
 SAGA_STATE_MACHINE_ARN = os.environ["SAGA_STATE_MACHINE_ARN"]

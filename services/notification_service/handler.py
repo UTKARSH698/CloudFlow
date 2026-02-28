@@ -29,8 +29,8 @@ from shared.idempotency import IdempotencyKey, idempotent
 
 patch_all()
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+from shared.logger import get_logger
+logger = get_logger(__name__)
 
 SNS_TOPIC_ARN = os.environ.get("NOTIFICATION_TOPIC_ARN", "")
 sns_client = boto3.client("sns")
