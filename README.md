@@ -1,11 +1,21 @@
 # CloudFlow — Distributed SAGA Order Processing on AWS
 
-A **production-grade serverless microservices platform** demonstrating distributed systems
-fundamentals: the SAGA pattern, idempotency, event sourcing, circuit breakers, and distributed
-tracing — deployed on AWS using infrastructure-as-code.
+> **Serverless order processing system on AWS demonstrating production-grade distributed systems
+> engineering: SAGA pattern, idempotency, circuit breakers, event sourcing, and measured
+> performance under concurrency.**
 
-> Built to showcase real distributed systems engineering: not just "it works", but *why* it works
-> and what happens when it doesn't.
+---
+
+### Key Takeaways
+
+| | |
+|---|---|
+| **SAGA Orchestration** | Step Functions coordinates reserve → charge → confirm with automatic compensation on failure — no 2-phase commit, no distributed locks |
+| **Failure Recovery** | Every failure mode is handled and tested: payment failure triggers inventory rollback, duplicate requests are deduplicated, circuit breakers prevent cascade failures |
+| **Measured Performance** | Load-tested at 5–50 concurrent threads: 1,100+ req/min, P50 = 47ms, P99 = 120ms on LocalStack. Bottlenecks identified and explained |
+| **Test Coverage** | 30 tests across unit (moto mocks) and integration (LocalStack) layers — including failure scenarios, compensation paths, and idempotency under concurrency |
+| **Infrastructure as Code** | 5 AWS CDK stacks: DynamoDB tables, SQS queues, Step Functions, API Gateway, CloudWatch dashboards — fully reproducible in one deploy |
+| **Observability** | Structured JSON logs (CloudWatch Logs Insights ready), X-Ray distributed tracing, correlation IDs across every service boundary |
 
 ---
 
