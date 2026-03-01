@@ -59,7 +59,10 @@ def handler(event: dict, context) -> dict:
     except IdempotencyAlreadyInProgressError as e:
         return _response(409, {"error": str(e)})
     except Exception:
-        logger.exception("Unhandled exception in order_service handler")
+        logger.exception(
+            "Unhandled exception in order_service handler",
+            extra={"http_method": http_method, "path": path},
+        )
         return _response(500, {"error": "Internal server error"})
 
 
