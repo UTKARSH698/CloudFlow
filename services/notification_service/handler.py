@@ -73,7 +73,6 @@ def _process_record(record: dict) -> None:
         notification_type = body.get("notification_type", "ORDER_CONFIRMED")
         order_id = body["order_id"]
         customer_id = body["customer_id"]
-        customer_email = body.get("customer_email", "customer@example.com")
 
         message = _build_message(notification_type, order_id, body)
 

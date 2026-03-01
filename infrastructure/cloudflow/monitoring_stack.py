@@ -96,7 +96,7 @@ class MonitoringStack(cdk.Stack):
         dashboard.add_widgets(
             cw.TextWidget(
                 markdown="# CloudFlow — Order Processing Platform\n"
-                         "Real-time metrics for all services. [Runbook](https://github.com/your-org/cloudflow/wiki/runbook)",
+                         "Real-time metrics for all services. [Runbook](https://github.com/UTKARSH698/CloudFlow)",
                 width=24,
             )
         )
