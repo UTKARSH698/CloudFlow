@@ -47,19 +47,19 @@
 > Dashboard startup → Place order (CONFIRMED) → Force Failure (COMPENSATED with inventory rollback) → Trip circuit breaker (OPEN fast-fail) → Oversell attempt (INSUFFICIENT_STOCK)
 
 ### Scenario 1 — Happy Path (SAGA completes end-to-end)
-![Happy Path](demo/demo-01-happy-path.png)
+![Happy Path](demo/demo-01-happy-path.gif)
 > Full SAGA trace: Create Order → Reserve Inventory → Charge Payment → Confirm. Each step timed independently. Order status shows `CONFIRMED`, inventory count decrements atomically.
 
 ### Scenario 2 — Payment Failure + Automatic Compensation
-![Payment Compensation](demo/demo-02-compensation.png)
+![Payment Compensation](demo/demo-02-compensation.gif)
 > Payment deliberately declined. Step Functions triggers the compensation path: inventory is released back, order marked `COMPENSATED`. No stock held without a successful charge.
 
 ### Scenario 3 — Circuit Breaker Fast-Fail
-![Circuit Breaker Open](demo/demo-03-circuit-breaker.png)
+![Circuit Breaker Open](demo/demo-03-circuit-breaker.gif)
 > Circuit breaker manually tripped to `OPEN`. Subsequent orders fail in < 1ms without touching the payment provider — preventing a cascade timeout across the entire Lambda fleet.
 
 ### Scenario 4 — Oversell Protection
-![Oversell Protection](demo/demo-04-oversell.png)
+![Oversell Protection](demo/demo-04-oversell.gif)
 > Order quantity exceeds available stock. DynamoDB `ConditionalCheckFailedException` fires atomically — no overselling even under concurrent requests. Returns `INSUFFICIENT_STOCK` immediately.
 
 ---
