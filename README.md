@@ -23,7 +23,7 @@
 
 | Section | What You'll Find |
 |---|---|
-| [Live Demo](#live-demo) | 4 screenshots of the dashboard — all distributed systems scenarios |
+| [Live Demo](#live-demo) | 4 animated GIF demos — all distributed systems scenarios in action |
 | [Architecture](#architecture) | Mermaid diagram — full system at a glance |
 | [How the SAGA Works](#distributed-systems-concepts) | SAGA, idempotency, circuit breaker, event sourcing |
 | [Failure Scenarios](#failure-scenarios--recovery) | Every failure mode + how the system recovers |
@@ -41,10 +41,6 @@
 
 > **Interactive Streamlit dashboard** running against LocalStack — all 4 distributed systems scenarios in action.
 > Run locally: `.\run.ps1 local-up` then `.\run.ps1 dashboard`
-
-### Full Flow — 20-second Demo
-![CloudFlow Demo](demo/demo.gif)
-> Dashboard startup → Place order (CONFIRMED) → Force Failure (COMPENSATED with inventory rollback) → Trip circuit breaker (OPEN fast-fail) → Oversell attempt (INSUFFICIENT_STOCK)
 
 ### Scenario 1 — Happy Path (SAGA completes end-to-end)
 ![Happy Path](demo/demo-01-happy-path.gif)
