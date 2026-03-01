@@ -281,7 +281,9 @@ with left:
     customer      = st.selectbox("Customer", customers)
     product_label = st.selectbox("Product", list(product_map.keys()))
     product_id    = product_map[product_label]
-    quantity      = st.number_input("Quantity", min_value=1, max_value=10, value=1)
+    selected_item = next((i for i in inventory if i["product_id"] == product_id), {})
+    stock         = max(int(selected_item.get("quantity", 1)), 1)
+    quantity      = st.number_input("Quantity", min_value=1, max_value=stock, value=1)
 
     btn_col1, btn_col2 = st.columns(2)
     place    = btn_col1.button("✅ Place Order",   use_container_width=True, type="primary")
