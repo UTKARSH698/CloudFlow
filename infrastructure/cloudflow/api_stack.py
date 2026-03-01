@@ -60,6 +60,9 @@ class ApiStack(cdk.Stack):
             handler="handler.handler",
             code=_lambda.Code.from_asset("../services/order_service"),
             layers=[shared_layer],
+            # SAGA_STATE_MACHINE_ARN is intentionally "PLACEHOLDER" here.
+            # SagaStack depends on this Lambda, so it must be created after ApiStack.
+            # app.py injects the real ARN via add_environment() once both stacks exist.
             environment={**common_env, "SAGA_STATE_MACHINE_ARN": "PLACEHOLDER"},
             tracing=_lambda.Tracing.ACTIVE,
             log_retention=logs.RetentionDays.ONE_WEEK,
