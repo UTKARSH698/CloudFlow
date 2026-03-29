@@ -52,7 +52,7 @@ def handler(event: dict, context) -> dict:
             return _create_order(event)
         if http_method == "GET" and path.startswith("/orders/"):
             order_id = path.split("/")[-1]
-            return _get_order(order_id)
+            return _get_order(order_id, event)
         return _response(404, {"error": "Not Found"})
     except ValidationError as e:
         return _response(400, {"error": "Validation failed", "details": e.errors()})
@@ -111,7 +111,7 @@ def _create_order(api_event: dict) -> dict:
             "Order created",
             extra={"order_id": order_id, "correlation_id": correlation_id},
         )
-        return {"order_id": order_id, "status": order["status"]}
+        return {"order_id": order_id, "status": order["status"], "correlation_id": correlation_id}
 
     result = _idempotent_create()
     return _response(202, result)   # 202 Accepted: processing is asynchronous
@@ -121,14 +121,18 @@ def _create_order(api_event: dict) -> dict:
 # Get order
 # ---------------------------------------------------------------------------
 
-def _get_order(order_id: str) -> dict:
+def _get_order(order_id: str, api_event: dict) -> dict:
     with xray_recorder.in_subsegment("get_order"):
         order = repo.get(order_id)
         if not order:
             return _response(404, {"error": f"Order {order_id!r} not found"})
 
-        history = repo.get_event_history(order_id)
-        return _response(200, {**order, "event_history": history})
+        params = api_event.get("queryStringParameters") or {}
+        limit = min(int(params.get("limit", "50")), 100)
+        cursor = params.get("cursor")
+
+        history = repo.get_event_history(order_id, limit=limit, cursor=cursor)
+        return _response(200, {**order, **history})
 
 
 # ---------------------------------------------------------------------------

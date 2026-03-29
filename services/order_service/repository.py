@@ -16,6 +16,8 @@ Why single-table design?
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 import time
 from datetime import datetime, timezone
@@ -71,18 +73,38 @@ class OrderRepository:
         item = resp.get("Item")
         return decimal_to_python(item) if item else None
 
-    def get_event_history(self, order_id: str) -> list[dict]:
-        """Return all events for this order in chronological order."""
-        resp = self._table.query(
-            KeyConditionExpression=(
-                "pk = :pk AND begins_with(sk, :prefix)"
-            ),
-            ExpressionAttributeValues={
+    def get_event_history(
+        self, order_id: str, limit: int = 50, cursor: str | None = None
+    ) -> dict[str, Any]:
+        """Return events for this order in chronological order with cursor-based pagination.
+
+        Returns {"events": [...], "next_cursor": str | None}.
+        Pass next_cursor as cursor in the next call to page forward.
+        Default limit is 50; max is 100 (enforced by the handler).
+        """
+        kwargs: dict[str, Any] = {
+            "KeyConditionExpression": "pk = :pk AND begins_with(sk, :prefix)",
+            "ExpressionAttributeValues": {
                 ":pk": f"ORDER#{order_id}",
                 ":prefix": "EVENT#",
             },
-        )
-        return [decimal_to_python(i) for i in resp.get("Items", [])]
+            "Limit": limit,
+        }
+        if cursor:
+            kwargs["ExclusiveStartKey"] = json.loads(base64.b64decode(cursor).decode())
+
+        resp = self._table.query(**kwargs)
+
+        next_cursor = None
+        if "LastEvaluatedKey" in resp:
+            next_cursor = base64.b64encode(
+                json.dumps(resp["LastEvaluatedKey"]).encode()
+            ).decode()
+
+        return {
+            "events": [decimal_to_python(i) for i in resp.get("Items", [])],
+            "next_cursor": next_cursor,
+        }
 
     # ------------------------------------------------------------------
     # Private helpers

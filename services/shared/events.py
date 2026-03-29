@@ -86,7 +86,7 @@ class CloudFlowEvent(BaseModel):
 class OrderItem(BaseModel):
     product_id: str
     quantity: int = Field(gt=0)
-    unit_price_cents: int = Field(ge=0)  # always use integers for money — never floats
+    unit_price_cents: int = Field(gt=0)  # always use integers for money — never floats
 
     @property
     def total_cents(self) -> int:

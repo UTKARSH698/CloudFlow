@@ -120,11 +120,12 @@ def _build_subject(notification_type: str, order_id: str) -> str:
 
 def _build_message(notification_type: str, order_id: str, body: dict) -> str:
     if notification_type == "ORDER_CONFIRMED":
-        total = body.get("total_cents", 0) / 100
+        total_cents = body.get("total_cents", 0)
+        total_str = f"${total_cents // 100}.{total_cents % 100:02d}"
         return (
             f"Your order has been confirmed!\n\n"
             f"Order ID: {order_id}\n"
-            f"Total: ${total:.2f}\n\n"
+            f"Total: {total_str}\n\n"
             f"Your items will be shipped within 2-3 business days."
         )
     if notification_type == "ORDER_FAILED":

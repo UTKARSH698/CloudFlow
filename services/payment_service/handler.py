@@ -34,9 +34,26 @@ from shared.logger import get_logger
 logger = get_logger(__name__)
 
 PAYMENTS_TABLE = os.environ.get("PAYMENTS_TABLE", "cloudflow-payments")
-PAYMENT_PROVIDER_URL = os.environ.get("PAYMENT_PROVIDER_URL", "https://api.payment-mock.internal")
 
 payments_table = get_table(PAYMENTS_TABLE)
+
+# Cached after first Lambda invocation — Secrets Manager is called at most once per
+# container lifetime, not once per request. Falls back to env var for local dev/tests.
+_payment_provider_url: str | None = None
+
+
+def _get_payment_provider_url() -> str:
+    global _payment_provider_url
+    if _payment_provider_url is None:
+        secret_name = os.environ.get("PAYMENT_PROVIDER_SECRET_NAME")
+        if secret_name:
+            sm = boto3.client("secretsmanager")
+            _payment_provider_url = sm.get_secret_value(SecretId=secret_name)["SecretString"]
+        else:
+            _payment_provider_url = os.environ.get(
+                "PAYMENT_PROVIDER_URL", "https://api.payment-mock.internal"
+            )
+    return _payment_provider_url
 
 # Shared circuit breaker instance — state lives in DynamoDB, not in-process
 payment_circuit_breaker = CircuitBreaker(
@@ -175,12 +192,13 @@ def _call_payment_provider(action: str, **kwargs) -> dict:
     """
     Simulates an external payment API call.
 
-    In production: replace with boto3 call to Secrets Manager for API keys,
-    then call Stripe SDK or requests to payment gateway.
+    In production: replace the body below with the real Stripe/Braintree SDK call.
+    The provider URL is fetched from Secrets Manager via _get_payment_provider_url().
 
     Raises an exception on network timeout (simulated) so the circuit breaker
     can record the failure.
     """
+    _get_payment_provider_url()  # validate credentials are reachable on first call
     import random
     import time
 

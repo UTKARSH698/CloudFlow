@@ -24,7 +24,7 @@ jobs:
         run: pip install -r requirements-dev.txt
 
       - name: Run unit tests
-        run: pytest tests/unit/ -v --tb=short --cov=services --cov-report=xml --cov-fail-under=70
+        run: pytest tests/unit/ -v --tb=short --cov=services --cov-report=xml --cov-fail-under=75
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -100,3 +100,39 @@ jobs:
 
       - name: Run mypy (type checker)
         run: mypy services/shared/ --ignore-missing-imports
+
+      - name: Security audit (dependency vulnerabilities)
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements-dev.txt --format=columns
+
+  cdk-synth:
+    name: CDK Synth Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Set up Node.js (for CDK CLI)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install CDK CLI
+        run: npm install -g aws-cdk
+
+      - name: Install infrastructure dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Synthesize CloudFormation templates
+        run: cdk synth --app "python infrastructure/app.py" --quiet
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test

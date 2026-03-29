@@ -65,6 +65,12 @@ def test_order_item_rejects_zero_quantity():
         OrderItem(product_id="p1", quantity=0, unit_price_cents=100)
 
 
+def test_order_item_rejects_zero_price():
+    """Price must be positive — zero-price items are not orderable."""
+    with pytest.raises(ValidationError):
+        OrderItem(product_id="p1", quantity=1, unit_price_cents=0)
+
+
 def test_order_item_rejects_negative_price():
     """Price cannot be negative."""
     with pytest.raises(ValidationError):

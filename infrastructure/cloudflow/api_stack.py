@@ -14,6 +14,7 @@ from aws_cdk import aws_apigateway as apigw
 from aws_cdk import aws_lambda as _lambda
 from aws_cdk import aws_lambda_event_sources as event_sources
 from aws_cdk import aws_logs as logs
+from aws_cdk import aws_secretsmanager as sm
 from constructs import Construct
 
 LAMBDA_RUNTIME = _lambda.Runtime.PYTHON_3_11
@@ -98,6 +99,17 @@ class ApiStack(cdk.Stack):
         tables["idempotency"].grant_read_write_data(inventory_fn)
 
         # ----------------------------------------------------------------
+        # Secrets Manager — payment provider credentials
+        # Rotating this secret is safe: Lambda fetches it once per container
+        # lifetime, so a rotation triggers a cold start on next invocation.
+        # ----------------------------------------------------------------
+        payment_provider_secret = sm.Secret(
+            self, "PaymentProviderSecret",
+            secret_name="cloudflow/payment-provider-url",
+            description="External payment provider base URL for the CloudFlow payment service",
+        )
+
+        # ----------------------------------------------------------------
         # Payment Service (reserved concurrency — cost control)
         # ----------------------------------------------------------------
         payment_fn = _lambda.Function(
@@ -107,7 +119,7 @@ class ApiStack(cdk.Stack):
             handler="handler.handler",
             code=_lambda.Code.from_asset("../services/payment_service"),
             layers=[shared_layer],
-            environment=common_env,
+            environment={**common_env, "PAYMENT_PROVIDER_SECRET_NAME": payment_provider_secret.secret_name},
             tracing=_lambda.Tracing.ACTIVE,
             log_retention=logs.RetentionDays.ONE_WEEK,
             timeout=cdk.Duration.seconds(30),
@@ -118,6 +130,7 @@ class ApiStack(cdk.Stack):
         tables["payments"].grant_read_write_data(payment_fn)
         tables["idempotency"].grant_read_write_data(payment_fn)
         tables["circuit_breakers"].grant_read_write_data(payment_fn)
+        payment_provider_secret.grant_read(payment_fn)
 
         # ----------------------------------------------------------------
         # Notification Service (SQS-triggered)
@@ -148,6 +161,34 @@ class ApiStack(cdk.Stack):
         )
 
         # ----------------------------------------------------------------
+        # DLQ Processor — structured logging for failed messages
+        # Triggered by all DLQs; never retries, only logs for investigation.
+        # ----------------------------------------------------------------
+        dlq_fn = _lambda.Function(
+            self, "DlqProcessorFunction",
+            function_name="cloudflow-dlq-processor",
+            runtime=LAMBDA_RUNTIME,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset("../services/dlq_processor"),
+            layers=[shared_layer],
+            environment={"LOG_LEVEL": "ERROR", "POWERTOOLS_SERVICE_NAME": "cloudflow-dlq"},
+            tracing=_lambda.Tracing.ACTIVE,
+            log_retention=logs.RetentionDays.ONE_MONTH,  # Longer retention for forensics
+            timeout=cdk.Duration.seconds(60),
+            memory_size=128,
+        )
+        self.lambdas["dlq_processor"] = dlq_fn
+
+        for dlq_name in ["inventory-dlq", "payment-dlq", "notification-dlq"]:
+            dlq_fn.add_event_source(
+                event_sources.SqsEventSource(
+                    queues[dlq_name],
+                    batch_size=10,
+                    report_batch_item_failures=True,
+                )
+            )
+
+        # ----------------------------------------------------------------
         # API Gateway
         # ----------------------------------------------------------------
         log_group = logs.LogGroup(self, "ApiGwLogs", retention=logs.RetentionDays.ONE_WEEK)
@@ -173,11 +214,28 @@ class ApiStack(cdk.Stack):
             ),
         )
 
+        # API key + usage plan — require x-api-key header on all requests.
+        # Callers retrieve their key via AWS Console / CLI; rotate quarterly.
+        api_key = api.add_api_key(
+            "CloudFlowApiKey",
+            api_key_name="cloudflow-api-key",
+            description="Primary API key for CloudFlow — rotate quarterly",
+        )
+        usage_plan = api.add_usage_plan(
+            "CloudFlowUsagePlan",
+            name="CloudFlowPlan",
+            throttle=apigw.ThrottleSettings(rate_limit=100, burst_limit=200),
+            quota=apigw.QuotaSettings(limit=100_000, period=apigw.Period.MONTH),
+        )
+        usage_plan.add_api_key(api_key)
+        usage_plan.add_api_stage(stage=api.deployment_stage)
+
         order_integration = apigw.LambdaIntegration(self.order_fn)
         orders_resource = api.root.add_resource("orders")
-        orders_resource.add_method("POST", order_integration)
+        orders_resource.add_method("POST", order_integration, api_key_required=True)
 
         order_id_resource = orders_resource.add_resource("{orderId}")
-        order_id_resource.add_method("GET", order_integration)
+        order_id_resource.add_method("GET", order_integration, api_key_required=True)
 
         cdk.CfnOutput(self, "ApiUrl", value=api.url)
+        cdk.CfnOutput(self, "ApiKeyId", value=api_key.key_id)
