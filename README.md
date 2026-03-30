@@ -13,7 +13,7 @@
 | **SAGA Orchestration** | Step Functions coordinates reserve → charge → confirm with automatic compensation on failure — no 2-phase commit, no distributed locks |
 | **Failure Recovery** | Every failure mode is handled and tested: payment failure triggers inventory rollback, duplicate requests are deduplicated, circuit breakers prevent cascade failures |
 | **Measured Performance** | Load-tested at 5–50 concurrent threads: 1,100+ req/min, P50 = 47ms, P99 = 120ms on LocalStack. Bottlenecks identified and explained |
-| **Test Coverage** | 40+ tests across unit (moto mocks) and integration (LocalStack) layers — including failure scenarios, compensation paths, pagination, DLQ processing, and idempotency under concurrency |
+| **Test Coverage** | 50+ tests across unit (moto mocks) and integration (LocalStack) layers — including failure scenarios, compensation paths, pagination, DLQ processing, and idempotency under concurrency |
 | **Infrastructure as Code** | 5 AWS CDK stacks: DynamoDB tables, SQS queues, Step Functions, API Gateway, CloudWatch dashboards — fully reproducible in one deploy |
 | **Observability** | Structured JSON logs (CloudWatch Logs Insights ready), X-Ray distributed tracing, correlation IDs across every service boundary |
 
@@ -392,7 +392,8 @@ cloudflow/
 │   │   ├── test_events.py
 │   │   ├── test_failure_scenarios.py   # failure mode coverage
 │   │   ├── test_dlq_processor.py       # DLQ handler resilience
-│   │   └── test_pagination.py          # cursor-based event pagination
+│   │   ├── test_pagination.py          # cursor-based event pagination
+│   │   └── test_order_service.py       # order handler routes + validation
 │   └── integration/             # LocalStack — real DynamoDB via Docker
 │       └── test_saga_flow.py
 ├── scripts/
@@ -423,9 +424,9 @@ cd CloudFlow
 
 # Linux / macOS
 make setup
-make test-unit          # 25+ unit tests, no Docker needed (~6s)
+make test-unit          # 30+ unit tests, no Docker needed (~6s)
 make local-up           # Start LocalStack
-make test               # All 40+ tests
+make test               # All 50+ tests
 make local-down
 
 # Windows (PowerShell)
@@ -449,6 +450,17 @@ make demo               # Submit a sample order end-to-end
 ## API Reference
 
 All endpoints accept and return `application/json`. Deployed via API Gateway; test locally with `.\run.ps1 local-up` + `.\run.ps1 demo`.
+
+### GET /health — Health check
+
+No API key required. Used by load balancers and deployment verification.
+
+**Response — 200 OK:**
+```json
+{ "status": "healthy", "service": "order-service" }
+```
+
+---
 
 ### POST /orders — Place an order
 
@@ -543,7 +555,7 @@ Throughput       1,100/min   ███████████
 P50 latency         47ms     ████▌
 P95 latency         89ms     ████████▉
 P99 latency        120ms     ████████████
-Test suite      40+ tests    ✅ all passing, <30s
+Test suite      50+ tests    ✅ all passing, <30s
 ─────────────────────────────────────────────────────────────────────
 LocalStack is ~6× slower than real AWS DynamoDB (8ms vs 50ms writes).
 Correctness properties — idempotency, compensation, atomic writes — are identical.

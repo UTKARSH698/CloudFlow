@@ -232,6 +232,11 @@ class ApiStack(cdk.Stack):
         usage_plan.add_api_stage(stage=api.deployment_stage)
 
         order_integration = apigw.LambdaIntegration(self.order_fn)
+
+        # Health check — no API key required (used by load balancers)
+        health_resource = api.root.add_resource("health")
+        health_resource.add_method("GET", order_integration)
+
         orders_resource = api.root.add_resource("orders")
         orders_resource.add_method("POST", order_integration, api_key_required=True)
 

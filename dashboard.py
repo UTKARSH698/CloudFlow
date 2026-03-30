@@ -192,7 +192,7 @@ def run_saga(customer_id: str, product_id: str, quantity: int, force_fail: bool)
             })
             trace.append({"icon": "✅", "step": "Charge Payment",
                           "ms": int((time.time() - t) * 1000),
-                          "detail": f"payment_id={payment_id}  amount=${price_cents / 100:.2f}"})
+                          "detail": f"payment_id={payment_id}  amount=${price_cents // 100}.{price_cents % 100:02d}"})
         except Exception as e:
             payment_error = str(e)
 
@@ -262,7 +262,7 @@ for col, item in zip(st.columns(len(inventory)), inventory):
     col.metric(
         label=item.get("name", item["product_id"]),
         value=f"{qty} units",
-        delta=f"${int(item.get('price_cents', 0)) / 100:.2f} each",
+        delta=f"${int(item.get('price_cents', 0)) // 100}.{int(item.get('price_cents', 0)) % 100:02d} each",
         delta_color="off",
     )
     col.caption(f"{color} {item['product_id']}")

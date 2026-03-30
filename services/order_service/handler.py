@@ -1,9 +1,10 @@
 """
 Order Service Lambda Handler
 =============================
-Handles two routes:
-  POST /orders     → Create a new order and start the SAGA
-  GET  /orders/:id → Query order status + event history
+Handles three routes:
+  GET  /health      → Health check for load balancer / deployment verification
+  POST /orders      → Create a new order and start the SAGA
+  GET  /orders/:id  → Query order status + event history
 
 The handler is thin: validation → idempotency check → repository → SAGA kickoff.
 All business logic lives in the repository and shared utilities.
@@ -48,6 +49,8 @@ def handler(event: dict, context) -> dict:
     path = event.get("path", "")
 
     try:
+        if http_method == "GET" and path == "/health":
+            return _response(200, {"status": "healthy", "service": "order-service"})
         if http_method == "POST" and path == "/orders":
             return _create_order(event)
         if http_method == "GET" and path.startswith("/orders/"):
