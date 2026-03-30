@@ -21,7 +21,7 @@ LAMBDA_RUNTIME = _lambda.Runtime.PYTHON_3_11
 
 
 class ApiStack(cdk.Stack):
-    def __init__(self, scope, id: str, *, tables, event_bus, queues, **kwargs):
+    def __init__(self, scope, id: str, *, tables, event_bus, queues, notification_topic, **kwargs):
         super().__init__(scope, id, **kwargs)
 
         self.lambdas: dict[str, _lambda.Function] = {}
@@ -142,7 +142,7 @@ class ApiStack(cdk.Stack):
             handler="handler.handler",
             code=_lambda.Code.from_asset("../services/notification_service"),
             layers=[shared_layer],
-            environment=common_env,
+            environment={**common_env, "NOTIFICATION_TOPIC_ARN": notification_topic.topic_arn},
             tracing=_lambda.Tracing.ACTIVE,
             log_retention=logs.RetentionDays.ONE_WEEK,
             timeout=cdk.Duration.seconds(30),
@@ -150,6 +150,7 @@ class ApiStack(cdk.Stack):
         )
         self.lambdas["notification"] = notification_fn
         tables["idempotency"].grant_read_write_data(notification_fn)
+        notification_topic.grant_publish(notification_fn)
 
         # SQS event source mapping with partial batch failure reporting
         notification_fn.add_event_source(

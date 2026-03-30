@@ -63,7 +63,7 @@ scripts/         # Load testing + demo data seeding
 - **Formatter:** `ruff format services/ tests/`
 - **Linter:** `ruff check services/ tests/`
 - **Type checker:** `mypy services/shared/ --ignore-missing-imports`
-- **Test coverage:** must stay above 70% (`--cov-fail-under=70`)
+- **Test coverage:** must stay above 75% (`--cov-fail-under=75`)
 
 Run all checks before submitting:
 ```bash
@@ -91,7 +91,7 @@ Examples:
 
 - [ ] Tests pass (`pytest tests/unit/`)
 - [ ] No linting errors (`ruff check services/ tests/`)
-- [ ] Coverage stays above 70%
+- [ ] Coverage stays above 75%
 - [ ] Relevant documentation updated (README / TECHNICAL.md)
 
 ---

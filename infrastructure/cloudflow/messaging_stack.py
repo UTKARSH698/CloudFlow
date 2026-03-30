@@ -14,6 +14,7 @@ SQS visibility timeout > Lambda timeout:
 """
 import aws_cdk as cdk
 from aws_cdk import aws_events as events
+from aws_cdk import aws_sns as sns
 from aws_cdk import aws_sqs as sqs
 from constructs import Construct
 
@@ -32,6 +33,18 @@ class MessagingStack(cdk.Stack):
             event_bus_name="cloudflow-events",
         )
         cdk.CfnOutput(self, "EventBusName", value=self.event_bus.event_bus_name)
+
+        # ----------------------------------------------------------------
+        # SNS topic for customer-facing notifications (email, SMS)
+        # Notification Lambda publishes here; subscriptions are managed
+        # outside CDK (email verification, SMS opt-in, etc.)
+        # ----------------------------------------------------------------
+        self.notification_topic = sns.Topic(
+            self, "NotificationTopic",
+            topic_name="cloudflow-notifications",
+            display_name="CloudFlow Order Notifications",
+        )
+        cdk.CfnOutput(self, "NotificationTopicArn", value=self.notification_topic.topic_arn)
 
         # ----------------------------------------------------------------
         # Helper: create queue + DLQ pair

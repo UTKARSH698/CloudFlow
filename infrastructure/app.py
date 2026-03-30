@@ -38,6 +38,7 @@ api_stack = ApiStack(
     tables=db_stack.tables,
     event_bus=messaging_stack.event_bus,
     queues=messaging_stack.queues,
+    notification_topic=messaging_stack.notification_topic,
     env=env,
 )
 saga_stack = SagaStack(
