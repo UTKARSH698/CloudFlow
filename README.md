@@ -13,7 +13,7 @@
 | **SAGA Orchestration** | Step Functions coordinates reserve → charge → confirm with automatic compensation on failure — no 2-phase commit, no distributed locks |
 | **Failure Recovery** | Every failure mode is handled and tested: payment failure triggers inventory rollback, duplicate requests are deduplicated, circuit breakers prevent cascade failures |
 | **Measured Performance** | Load-tested at 5–50 concurrent threads: 1,100+ req/min, P50 = 47ms, P99 = 120ms on LocalStack. Bottlenecks identified and explained |
-| **Test Coverage** | 30 tests across unit (moto mocks) and integration (LocalStack) layers — including failure scenarios, compensation paths, and idempotency under concurrency |
+| **Test Coverage** | 40+ tests across unit (moto mocks) and integration (LocalStack) layers — including failure scenarios, compensation paths, pagination, DLQ processing, and idempotency under concurrency |
 | **Infrastructure as Code** | 5 AWS CDK stacks: DynamoDB tables, SQS queues, Step Functions, API Gateway, CloudWatch dashboards — fully reproducible in one deploy |
 | **Observability** | Structured JSON logs (CloudWatch Logs Insights ready), X-Ray distributed tracing, correlation IDs across every service boundary |
 
@@ -87,6 +87,10 @@ flowchart TD
     SQ --> NS[Notification Service λ]
     NS --> SNS[SNS Topic]
 
+    SQ -.->|3 failures| DLQ[Dead Letter Queues]
+    DLQ --> DP[DLQ Processor λ]
+    DP -->|structured error logs| CW[CloudWatch Logs]
+
     IS & PS <-->|deduplication| ID[(idempotency\nDynamoDB)]
     PS <-->|circuit state| CB[(circuit-breakers\nDynamoDB)]
 
@@ -106,6 +110,7 @@ flowchart TD
 | Inventory Service | `inventory-handler` | `inventory` + `reservations` DynamoDB | — |
 | Payment Service | `payment-handler` | `payments` DynamoDB | — |
 | Notification Service | `notification-handler` | — | `notification-queue` SQS |
+| DLQ Processor | `dlq-processor` | — | All 3 Dead Letter Queues |
 
 ---
 
@@ -378,13 +383,16 @@ cloudflow/
 │   ├── order_service/           # Create orders, manage event sourcing log
 │   ├── inventory_service/       # Atomic reserve / release (SAGA steps)
 │   ├── payment_service/         # Charge / refund with circuit breaker
-│   └── notification_service/    # SQS-triggered email/SMS notifications
+│   ├── notification_service/    # SQS-triggered email/SMS notifications
+│   └── dlq_processor/           # Structured logging for failed DLQ messages
 ├── tests/
 │   ├── unit/                    # moto mocks — pure logic, no Docker
 │   │   ├── test_circuit_breaker.py
 │   │   ├── test_idempotency.py
 │   │   ├── test_events.py
-│   │   └── test_failure_scenarios.py   # failure mode coverage
+│   │   ├── test_failure_scenarios.py   # failure mode coverage
+│   │   ├── test_dlq_processor.py       # DLQ handler resilience
+│   │   └── test_pagination.py          # cursor-based event pagination
 │   └── integration/             # LocalStack — real DynamoDB via Docker
 │       └── test_saga_flow.py
 ├── scripts/
@@ -415,9 +423,9 @@ cd CloudFlow
 
 # Linux / macOS
 make setup
-make test-unit          # 15+ unit tests, no Docker needed (~6s)
+make test-unit          # 25+ unit tests, no Docker needed (~6s)
 make local-up           # Start LocalStack
-make test               # All 22+ tests
+make test               # All 40+ tests
 make local-down
 
 # Windows (PowerShell)
@@ -454,15 +462,20 @@ All endpoints accept and return `application/json`. Deployed via API Gateway; te
 }
 ```
 
+**Headers:** `Idempotency-Key: <uuid>` (required), `x-api-key: <api-key>` (required)
+
 **Response — 202 Accepted (SAGA started):**
 ```json
-{ "order_id": "ord-abc-123", "status": "PENDING" }
+{ "order_id": "ord-abc-123", "status": "PENDING", "correlation_id": "corr-xyz-789" }
 ```
 > SAGA runs asynchronously. Poll `GET /orders/{order_id}` for final status.
+> The `correlation_id` traces the request across all services — use it for debugging.
 
 ---
 
 ### GET /orders/{order_id} — Get order status
+
+**Query parameters:** `?limit=50` (max 100), `?cursor=<token>` (from `next_cursor` in previous response)
 
 **Happy path — `CONFIRMED`:**
 ```json
@@ -530,7 +543,7 @@ Throughput       1,100/min   ███████████
 P50 latency         47ms     ████▌
 P95 latency         89ms     ████████▉
 P99 latency        120ms     ████████████
-Test suite      30 tests     ✅ all passing, <30s
+Test suite      40+ tests    ✅ all passing, <30s
 ─────────────────────────────────────────────────────────────────────
 LocalStack is ~6× slower than real AWS DynamoDB (8ms vs 50ms writes).
 Correctness properties — idempotency, compensation, atomic writes — are identical.

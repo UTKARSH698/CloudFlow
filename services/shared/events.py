@@ -31,6 +31,7 @@ class OrderStatus(str, Enum):
     PAYMENT_FAILED = "PAYMENT_FAILED"
     FAILED = "FAILED"
     COMPENSATING = "COMPENSATING"
+    COMPENSATED = "COMPENSATED"
 
 
 class EventType(str, Enum):

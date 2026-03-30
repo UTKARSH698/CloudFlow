@@ -103,7 +103,7 @@ def _process_record(record: dict) -> None:
         )
         return {"sent": True}
 
-    _do_notify()
+    return _do_notify()
 
 
 # ---------------------------------------------------------------------------

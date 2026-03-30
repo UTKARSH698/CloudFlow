@@ -253,12 +253,13 @@ class TestOrderRepository:
         repo.update_status(order_id, OrderStatus.PAYMENT_CHARGED)
 
         history = repo.get_event_history(order_id)
-        statuses = [e["status"] for e in history]
+        events = history["events"]
+        statuses = [e["status"] for e in events]
 
         assert "PENDING" in statuses
         assert "CONFIRMED" in statuses
         assert "PAYMENT_CHARGED" in statuses
-        assert len(history) == 3
+        assert len(events) == 3
 
 
 # ---------------------------------------------------------------------------

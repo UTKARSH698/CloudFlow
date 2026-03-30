@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import functools
 import json
-import logging
 import os
 import time
 from typing import Any, Callable
@@ -32,7 +31,9 @@ from typing import Any, Callable
 import boto3
 from botocore.exceptions import ClientError
 
-logger = logging.getLogger(__name__)
+from shared.logger import get_logger
+
+logger = get_logger(__name__)
 
 IDEMPOTENCY_TTL_SECONDS = int(os.environ.get("IDEMPOTENCY_TTL_SECONDS", "86400"))  # 24h
 

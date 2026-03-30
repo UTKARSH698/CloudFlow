@@ -503,14 +503,14 @@ To debug any order: `grep correlation_id=<id>` across all CloudWatch log groups.
 
 ### Short-term (production hardening)
 
-**Secrets Manager integration**
-Replace environment variable `PAYMENT_PROVIDER_URL` with Secrets Manager. Payment API keys should never be in environment variables (visible in Lambda console).
+**~~Secrets Manager integration~~ ✅ Implemented**
+Payment provider URL is now fetched from AWS Secrets Manager at runtime (cached per Lambda container). See `services/payment_service/handler.py` and `infrastructure/cloudflow/api_stack.py`.
 
-**API Authentication**
-Add Amazon Cognito or a custom Lambda authorizer to API Gateway. Currently the API is unauthenticated.
+**~~API Authentication~~ ✅ Implemented**
+API Gateway now requires an API key via `x-api-key` header, enforced through a Usage Plan with rate limiting (100 req/s, 200 burst, 100k/month quota). See `infrastructure/cloudflow/api_stack.py`.
 
-**DLQ processing**
-Implement a DLQ processor Lambda that alerts on failed messages and attempts manual replay.
+**~~DLQ processing~~ ✅ Implemented**
+A dedicated DLQ processor Lambda consumes all three Dead Letter Queues and emits structured error logs for investigation via CloudWatch Logs Insights. See `services/dlq_processor/handler.py`.
 
 **Provisioned concurrency**
 For the Order Service (the hot path), enable provisioned concurrency to eliminate cold start latency for production traffic.
