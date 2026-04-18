@@ -1,8 +1,19 @@
+<div align="center">
+
 # CloudFlow — Distributed SAGA Order Processing on AWS
 
-> **Serverless order processing system on AWS demonstrating production-grade distributed systems
-> engineering: SAGA pattern, idempotency, circuit breakers, event sourcing, and measured
-> performance under concurrency.**
+**Serverless order processing system on AWS demonstrating production-grade distributed systems engineering: SAGA pattern, idempotency, circuit breakers, event sourcing, and measured performance under concurrency.**
+
+![Python](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python&logoColor=white)
+![AWS Lambda](https://img.shields.io/badge/AWS_Lambda-FF9900?style=for-the-badge&logo=amazonaws&logoColor=white)
+![Step Functions](https://img.shields.io/badge/Step_Functions-FF4F8B?style=for-the-badge&logo=amazonaws&logoColor=white)
+![AWS CDK](https://img.shields.io/badge/AWS_CDK-232F3E?style=for-the-badge&logo=amazonaws&logoColor=white)
+![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
+![Tests](https://img.shields.io/badge/Tests-50%2B_passing-brightgreen?style=for-the-badge)
+![Serverless](https://img.shields.io/badge/Serverless-zero_ops-black?style=for-the-badge&logo=awslambda&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
+
+</div>
 
 ---
 
@@ -33,7 +44,9 @@
 | [Security](#security) | Input validation, IAM least-privilege, no secrets in code |
 | [How To Run Locally](#quick-start) | Setup + test commands (Windows & Linux) |
 | [API Reference](#api-reference) | Request/response examples for all 4 outcome types |
+| [Known Limitations](#known-limitations) | Open consistency question + honest design boundaries |
 | [TECHNICAL.md](./TECHNICAL.md) | 8-section deep-dive for full architecture analysis |
+| [Author](#author) | Background + links |
 
 ---
 
@@ -930,6 +943,28 @@ No Lambda can read another service's table. No Lambda has `dynamodb:*` on `*`. N
 
 ---
 
+## Known Limitations
+
+These are documented design boundaries — honest accounts of what the system does not yet handle.
+
+| Limitation | Root Cause | What Would Be Needed |
+|---|---|---|
+| **Compensation-state consistency is not formally proved** — compensating transactions are designed so partial rollback cannot produce an exploitable inconsistent state, but this property is verified by test coverage, not by proof | No formal model of the compensation state space; correctness argued by case analysis over the failure modes I could construct | A formal specification of the SAGA state machine (e.g. in TLA+) with a proof that every reachable compensation path terminates in a consistent state |
+| **Circuit breaker state is eventually consistent across Lambda instances** — DynamoDB propagation delay means two concurrent Lambda invocations can both read `CLOSED` and both attempt the external call before either writes `OPEN` | DynamoDB read-after-write consistency applies per-item per-instance, but concurrent reads before either write races | Compare-and-swap on the circuit state item using DynamoDB conditional writes on a version counter |
+| **No cross-service idempotency** — idempotency is enforced per-service (Order, Inventory, Payment each have their own idempotency table), but a request that passes Order idempotency and fails mid-SAGA may replay Inventory with a different key | Idempotency keys are scoped to each service handler independently | A saga-level idempotency token propagated through Step Functions input that each downstream service checks before executing |
+| **Step Functions execution history is lost after 90 days** — audit trail for long-running investigations relies on CloudWatch logs, not Step Functions | AWS hard limit on execution history retention | Export execution history to S3 on completion; query via Athena for investigations beyond 90 days |
+| **LocalStack behaviour diverges from real AWS under concurrency** — load test results (1,100+ req/min, P99 < 120ms) were measured on LocalStack; real DynamoDB provisioned throughput and Lambda cold start distributions will differ | LocalStack is an approximation; network latency and AWS throttling are not modelled | Re-run load tests on a real AWS account with provisioned DynamoDB capacity and compare P99 tail latencies |
+
+### The Open Consistency Question
+
+The core security-relevant open question in CloudFlow is whether the SAGA compensation design is **exhaustively safe** — not just safe for the failure modes I tested.
+
+Specifically: can a partial compensation path (where some compensating transactions succeed and others fail mid-compensation) produce a state that is internally consistent from each service's perspective but globally inconsistent — and exploitable? My design argues no, because each compensating transaction is idempotent and Step Functions retries failed compensation steps. But this argument relies on the assumption that Step Functions will eventually deliver every compensation step successfully, which is not guaranteed under all failure modes (e.g. Step Functions service disruption mid-compensation).
+
+This is the same class of problem as the CSPM remediation completeness question — the gap between per-component correctness and system-level safety guarantees. Both motivate the same research direction: formal verification of distributed security policies.
+
+---
+
 ## References & Further Reading
 
 - [SAGA Pattern — Microservices.io](https://microservices.io/patterns/data/saga.html)
@@ -938,3 +973,18 @@ No Lambda can read another service's table. No Lambda has `dynamodb:*` on `*`. N
 - [AWS Well-Architected Framework — Reliability Pillar](https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/welcome.html)
 - [DynamoDB Single-Table Design — Rick Houlihan](https://www.youtube.com/watch?v=BnDKD_Zv0og)
 - [Circuit Breaker Pattern — Martin Fowler](https://martinfowler.com/bliki/CircuitBreaker.html)
+
+---
+
+## License
+
+MIT © [Utkarsh Batham](https://github.com/UTKARSH698)
+
+---
+
+## Author
+
+**Utkarsh Batham** — B.Tech CSE · Cloud Technology & Information Security
+
+[![GitHub](https://img.shields.io/badge/GitHub-UTKARSH698-181717?style=flat&logo=github)](https://github.com/UTKARSH698)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-utkarshbatham-0A66C2?style=flat&logo=linkedin&logoColor=white)](https://linkedin.com/in/utkarshbatham)
