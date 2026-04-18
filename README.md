@@ -135,10 +135,12 @@ database. Step Functions orchestrates the happy path and compensation paths expl
 visible as a single state machine diagram. When payment fails, inventory is automatically
 released via a compensating transaction.
 
-### 2. Idempotency
+### 2. Idempotency as a Security Primitive
 Every Lambda handler uses a DynamoDB-backed idempotency decorator. SQS delivers messages
 at-least-once — duplicates are deduplicated atomically using `attribute_not_exists` conditional
 writes. No double-charges. No double-reservations. No distributed locks needed.
+
+Idempotency here is not just a reliability mechanism — it is a **replay-attack prevention primitive**. A duplicate order request with the same idempotency key is indistinguishable from an adversarial replay. By making every handler idempotent at the database level, the system rejects replays and duplicates with identical semantics, without needing a separate security layer. The same DynamoDB conditional write that prevents double-charging also closes the replay vector.
 
 ### 3. Event Sourcing
 Orders are never updated in place. Every state transition (`PENDING → CONFIRMED → PAYMENT_CHARGED`)
