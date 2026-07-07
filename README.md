@@ -421,7 +421,7 @@ cloudflow/
 ├── run.ps1                      # Windows PowerShell commands
 ├── Makefile                     # Linux/macOS commands
 ├── TECHNICAL.md                 # Deep-dive: architecture decisions & analysis
-└── .github/workflows/           # CI/CD: test on PR, deploy on merge to main
+└── .github/workflows/           # CI: test on every push/PR; deploy is manual (workflow_dispatch)
 ```
 
 ---
