@@ -5,8 +5,10 @@
 
 set -euo pipefail
 
-ENDPOINT="http://localstack:4566"
-REGION="us-east-1"
+# Default to the docker-compose service hostname, but honor AWS_ENDPOINT_URL so
+# CI (where LocalStack is a service container reached via localhost) can override it.
+ENDPOINT="${AWS_ENDPOINT_URL:-http://localstack:4566}"
+REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 
 echo "==> Creating DynamoDB tables..."
 
