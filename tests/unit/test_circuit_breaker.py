@@ -103,6 +103,32 @@ def test_circuit_allows_probe_after_timeout(aws_env):
 
 
 @mock_aws
+def test_concurrent_failures_from_stale_state_still_trip(aws_env):
+    """Two failures reported against the same stale snapshot must both count.
+
+    Simulates concurrent Lambda invocations that each read state before either
+    writes. With a read-modify-write counter both would write failure_count=1
+    and the breaker would never trip; the atomic ADD guarantees the second
+    increment lands and opens the circuit.
+    """
+    import boto3
+    from shared.circuit_breaker import CircuitBreaker, CircuitState
+
+    _make_cb_table(boto3.client("dynamodb", region_name="us-east-1"))
+
+    cb = CircuitBreaker("test-race", failure_threshold=2, timeout_seconds=60)
+    cb.reset()
+
+    stale = cb._get_state()  # both "invocations" observe the same CLOSED snapshot
+    cb._record_failure(stale)
+    cb._record_failure(stale)
+
+    state = cb._get_state()
+    assert int(state.get("failure_count", 0)) == 2
+    assert state["circuit_state"] == CircuitState.OPEN
+
+
+@mock_aws
 def test_circuit_closes_after_probe_successes(aws_env):
     """Circuit closes after success_threshold successful probes in HALF_OPEN."""
     import boto3

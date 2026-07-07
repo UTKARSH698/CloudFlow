@@ -152,6 +152,9 @@ The Payment Service wraps external provider calls in a circuit breaker stored in
 After N consecutive failures, the circuit opens — requests fast-fail in < 1ms instead of
 waiting for a 30-second timeout. Because state lives in DynamoDB (not in-process memory),
 all Lambda instances share the same circuit state across cold starts and concurrent invocations.
+Failure and success counters are updated with atomic DynamoDB `ADD` operations, and every
+state transition (open/close) is a guarded conditional write — so concurrent invocations
+can't lose an increment or clobber each other's transition.
 
 ### 5. CAP Theorem Tradeoffs
 - **Inventory reservations**: Strongly consistent reads — correctness matters, no overselling.
@@ -952,7 +955,7 @@ These are documented design boundaries — honest accounts of what the system do
 | Limitation | Root Cause | What Would Be Needed |
 |---|---|---|
 | **Compensation-state consistency is not formally proved** — compensating transactions are designed so partial rollback cannot produce an exploitable inconsistent state, but this property is verified by test coverage, not by proof | No formal model of the compensation state space; correctness argued by case analysis over the failure modes I could construct | A formal specification of the SAGA state machine (e.g. in TLA+) with a proof that every reachable compensation path terminates in a consistent state |
-| **Circuit breaker state is eventually consistent across Lambda instances** — DynamoDB propagation delay means two concurrent Lambda invocations can both read `CLOSED` and both attempt the external call before either writes `OPEN` | DynamoDB read-after-write consistency applies per-item per-instance, but concurrent reads before either write races | Compare-and-swap on the circuit state item using DynamoDB conditional writes on a version counter |
+| **Concurrent in-flight calls aren't serialized when the circuit is `CLOSED`** — two invocations can both read `CLOSED` and both make the external call before the breaker trips. The failure counter and state transitions are now race-free (atomic `ADD` + guarded conditional writes, so no lost increments and no clobbered transitions), but the breaker still can't retroactively cancel calls already in flight | Preventing concurrent in-flight calls requires serializing on the circuit item itself, which any distributed circuit breaker trades off against throughput | A leaky-bucket / concurrency-limit token acquired before each call, or accepting the small window of extra calls as the cost of not serializing every payment |
 | **No cross-service idempotency** — idempotency is enforced per-service (Order, Inventory, Payment each have their own idempotency table), but a request that passes Order idempotency and fails mid-SAGA may replay Inventory with a different key | Idempotency keys are scoped to each service handler independently | A saga-level idempotency token propagated through Step Functions input that each downstream service checks before executing |
 | **Step Functions execution history is lost after 90 days** — audit trail for long-running investigations relies on CloudWatch logs, not Step Functions | AWS hard limit on execution history retention | Export execution history to S3 on completion; query via Athena for investigations beyond 90 days |
 | **LocalStack behaviour diverges from real AWS under concurrency** — load test results (1,100+ req/min, P99 < 120ms) were measured on LocalStack; real DynamoDB provisioned throughput and Lambda cold start distributions will differ | LocalStack is an approximation; network latency and AWS throttling are not modelled | Re-run load tests on a real AWS account with provisioned DynamoDB capacity and compare P99 tail latencies |

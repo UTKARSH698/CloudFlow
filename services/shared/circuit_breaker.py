@@ -132,25 +132,36 @@ class CircuitBreaker:
         circuit_state = prev_state.get("circuit_state", CircuitState.CLOSED)
 
         if circuit_state == CircuitState.HALF_OPEN:
-            new_successes = int(prev_state.get("success_count", 0)) + 1
+            # Atomic ADD so concurrent probe successes can't lose an increment.
+            resp = self._table.update_item(
+                Key={"name": self.name},
+                UpdateExpression="ADD success_count :one",
+                ExpressionAttributeValues={":one": 1},
+                ReturnValues="UPDATED_NEW",
+            )
+            new_successes = int(resp["Attributes"]["success_count"])
             if new_successes >= self.success_threshold:
-                logger.info("Circuit '%s' CLOSED after %d probe successes", self.name, new_successes)
-                self._table.update_item(
-                    Key={"name": self.name},
-                    UpdateExpression="SET circuit_state = :s, failure_count = :f, success_count = :sc",
-                    ExpressionAttributeValues={
-                        ":s": CircuitState.CLOSED,
-                        ":f": 0,
-                        ":sc": 0,
-                    },
-                )
-            else:
-                self._table.update_item(
-                    Key={"name": self.name},
-                    UpdateExpression="SET success_count = :sc",
-                    ExpressionAttributeValues={":sc": new_successes},
-                )
-        # In CLOSED state, successes reset the failure counter
+                # Guard the close on still being HALF_OPEN so a concurrent
+                # failure that re-opened the circuit isn't clobbered.
+                try:
+                    self._table.update_item(
+                        Key={"name": self.name},
+                        UpdateExpression="SET circuit_state = :s, failure_count = :f, success_count = :sc",
+                        ConditionExpression="circuit_state = :half",
+                        ExpressionAttributeValues={
+                            ":s": CircuitState.CLOSED,
+                            ":f": 0,
+                            ":sc": 0,
+                            ":half": CircuitState.HALF_OPEN,
+                        },
+                    )
+                    logger.info(
+                        "Circuit '%s' CLOSED after %d probe successes", self.name, new_successes
+                    )
+                except ClientError as e:
+                    if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                        raise
+        # In CLOSED state, a success clears any accumulated failures.
         elif circuit_state == CircuitState.CLOSED:
             self._table.update_item(
                 Key={"name": self.name},
@@ -159,34 +170,51 @@ class CircuitBreaker:
             )
 
     def _record_failure(self, prev_state: dict) -> None:
-        new_failures = int(prev_state.get("failure_count", 0)) + 1
         circuit_state = prev_state.get("circuit_state", CircuitState.CLOSED)
 
-        if new_failures >= self.failure_threshold and circuit_state != CircuitState.OPEN:
-            resets_at = time.time() + self.timeout_seconds
+        # Atomic ADD so concurrent failures can't lose an increment and leave
+        # the breaker below threshold when it should have tripped.
+        resp = self._table.update_item(
+            Key={"name": self.name},
+            UpdateExpression="ADD failure_count :one",
+            ExpressionAttributeValues={":one": 1},
+            ReturnValues="UPDATED_NEW",
+        )
+        new_failures = int(resp["Attributes"]["failure_count"])
+
+        # A failed probe in HALF_OPEN, or crossing the threshold while CLOSED,
+        # trips the breaker. Guard on "not already OPEN" so only the first
+        # invocation to win the race sets resets_at.
+        should_open = (
+            circuit_state == CircuitState.HALF_OPEN
+            or new_failures >= self.failure_threshold
+        )
+        if not should_open:
+            return
+
+        resets_at = int(time.time() + self.timeout_seconds)
+        try:
+            self._table.update_item(
+                Key={"name": self.name},
+                UpdateExpression=(
+                    "SET circuit_state = :s, resets_at = :r, success_count = :sc"
+                ),
+                ConditionExpression="circuit_state <> :open",
+                ExpressionAttributeValues={
+                    ":s": CircuitState.OPEN,
+                    ":r": resets_at,
+                    ":sc": 0,
+                    ":open": CircuitState.OPEN,
+                },
+            )
             logger.warning(
                 "Circuit '%s' OPENED after %d failures. Resets at %s",
                 self.name, new_failures, resets_at,
             )
-            self._table.update_item(
-                Key={"name": self.name},
-                UpdateExpression=(
-                    "SET circuit_state = :s, failure_count = :f, "
-                    "resets_at = :r, success_count = :sc"
-                ),
-                ExpressionAttributeValues={
-                    ":s": CircuitState.OPEN,
-                    ":f": new_failures,
-                    ":r": int(resets_at),
-                    ":sc": 0,
-                },
-            )
-        else:
-            self._table.update_item(
-                Key={"name": self.name},
-                UpdateExpression="SET failure_count = :f",
-                ExpressionAttributeValues={":f": new_failures},
-            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                raise
+            # Already OPEN — another invocation tripped it first. Nothing to do.
 
     def _transition_to_half_open(self) -> None:
         logger.info("Circuit '%s' transitioning OPEN → HALF_OPEN", self.name)

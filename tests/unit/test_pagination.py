@@ -116,17 +116,26 @@ def test_cursor_based_pagination_walks_all_events(aws_env):
         time.sleep(0.001)
         repo.update_status(order_id, status)
 
-    # Page through 2 at a time
-    page1 = repo.get_event_history(order_id, limit=2)
-    assert len(page1["events"]) == 2
-    assert page1["next_cursor"] is not None
+    # Page through 2 at a time until exhausted. DynamoDB returns a cursor
+    # whenever a query fills its Limit exactly, even if no items remain, so a
+    # correct client pages until it gets an empty result — not until the
+    # cursor is None on the last full page.
+    all_events = []
+    cursor = None
+    pages = 0
+    while True:
+        page = repo.get_event_history(order_id, limit=2, cursor=cursor)
+        all_events.extend(page["events"])
+        cursor = page["next_cursor"]
+        pages += 1
+        if not page["events"] or cursor is None:
+            break
 
-    page2 = repo.get_event_history(order_id, limit=2, cursor=page1["next_cursor"])
-    assert len(page2["events"]) == 2
-    assert page2["next_cursor"] is None  # no more pages
+    assert len(all_events) == 4
+    assert pages >= 2  # 4 events at 2 per page took at least two fetches
 
     # All 4 statuses covered
-    all_statuses = [e["status"] for e in page1["events"] + page2["events"]]
+    all_statuses = [e["status"] for e in all_events]
     assert "PENDING" in all_statuses
     assert "CONFIRMED" in all_statuses
 
