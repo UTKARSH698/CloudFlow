@@ -16,23 +16,20 @@ Why atomic decrements matter:
 """
 from __future__ import annotations
 
-import json
-import logging
 import os
 import uuid
 from datetime import datetime, timezone
 
-import boto3
 from aws_xray_sdk.core import patch_all, xray_recorder
 from botocore.exceptions import ClientError
 
-from shared.dynamodb import decimal_to_python, get_table
-from shared.events import OrderItem, SagaContext
+from shared.dynamodb import get_table
+from shared.events import OrderItem
 from shared.idempotency import idempotent
 
 patch_all()
 
-from shared.logger import get_logger
+from shared.logger import get_logger  # noqa: E402  (must follow patch_all)
 logger = get_logger(__name__)
 
 def _inv_table():
@@ -104,7 +101,11 @@ def _reserve(event: dict) -> dict:
 
             logger.info(
                 "Inventory reserved",
-                extra={"order_id": order_id, "reservation_id": reservation_id},
+                extra={
+                    "order_id": order_id,
+                    "reservation_id": reservation_id,
+                    "correlation_id": correlation_id,
+                },
             )
             return {"success": True, "reservation_id": reservation_id}
 

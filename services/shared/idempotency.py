@@ -26,7 +26,7 @@ import functools
 import json
 import os
 import time
-from typing import Any, Callable
+from typing import Callable
 
 import boto3
 from botocore.exceptions import ClientError

@@ -47,7 +47,7 @@ def test_circuit_stays_closed_on_success(aws_env):
 def test_circuit_opens_after_threshold_failures(aws_env):
     """Circuit opens after hitting the failure threshold."""
     import boto3
-    from shared.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitState
+    from shared.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
     _make_cb_table(boto3.client("dynamodb", region_name="us-east-1"))
 
@@ -72,7 +72,7 @@ def test_circuit_opens_after_threshold_failures(aws_env):
 def test_circuit_allows_probe_after_timeout(aws_env):
     """After timeout, circuit transitions to HALF_OPEN and allows one probe."""
     import boto3
-    from shared.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitState
+    from shared.circuit_breaker import CircuitBreaker
 
     _make_cb_table(boto3.client("dynamodb", region_name="us-east-1"))
 

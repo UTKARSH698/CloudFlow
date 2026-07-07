@@ -9,15 +9,30 @@ Lambda configuration highlights:
 - Lambda Powertools layer for structured logging + metrics
 - Shared Lambda layer for the /services/shared/ code
 """
+import os
+
 import aws_cdk as cdk
 from aws_cdk import aws_apigateway as apigw
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as _lambda
 from aws_cdk import aws_lambda_event_sources as event_sources
 from aws_cdk import aws_logs as logs
 from aws_cdk import aws_secretsmanager as sm
 from constructs import Construct
 
+from .saga_stack import SAGA_STATE_MACHINE_NAME
+
 LAMBDA_RUNTIME = _lambda.Runtime.PYTHON_3_11
+
+# Anchor asset paths to the repo layout, not the current working directory, so
+# `cdk synth` works whether it's invoked from the repo root (CI) or infrastructure/.
+_SERVICES_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "services")
+)
+
+
+def _service_asset(name: str) -> str:
+    return os.path.join(_SERVICES_DIR, name)
 
 
 class ApiStack(cdk.Stack):
@@ -31,7 +46,7 @@ class ApiStack(cdk.Stack):
         # ----------------------------------------------------------------
         shared_layer = _lambda.LayerVersion(
             self, "SharedLayer",
-            code=_lambda.Code.from_asset("../services/shared"),
+            code=_lambda.Code.from_asset(_service_asset("shared")),
             compatible_runtimes=[LAMBDA_RUNTIME],
             description="CloudFlow shared utilities (events, idempotency, circuit_breaker)",
         )
@@ -54,17 +69,27 @@ class ApiStack(cdk.Stack):
         # ----------------------------------------------------------------
         # Order Service
         # ----------------------------------------------------------------
+        # The SAGA state machine lives in SagaStack, which depends on this
+        # stack's lambdas. Referencing its ARN via a cross-stack token would
+        # create a cyclic dependency, so we derive the ARN from its fixed name.
+        saga_state_machine_arn = cdk.Arn.format(
+            cdk.ArnComponents(
+                service="states",
+                resource="stateMachine",
+                resource_name=SAGA_STATE_MACHINE_NAME,
+                arn_format=cdk.ArnFormat.COLON_RESOURCE_NAME,
+            ),
+            self,
+        )
+
         self.order_fn = _lambda.Function(
             self, "OrderFunction",
             function_name="cloudflow-order-service",
             runtime=LAMBDA_RUNTIME,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../services/order_service"),
+            code=_lambda.Code.from_asset(_service_asset("order_service")),
             layers=[shared_layer],
-            # SAGA_STATE_MACHINE_ARN is intentionally "PLACEHOLDER" here.
-            # SagaStack depends on this Lambda, so it must be created after ApiStack.
-            # app.py injects the real ARN via add_environment() once both stacks exist.
-            environment={**common_env, "SAGA_STATE_MACHINE_ARN": "PLACEHOLDER"},
+            environment={**common_env, "SAGA_STATE_MACHINE_ARN": saga_state_machine_arn},
             tracing=_lambda.Tracing.ACTIVE,
             log_retention=logs.RetentionDays.ONE_WEEK,
             timeout=cdk.Duration.seconds(30),
@@ -77,6 +102,15 @@ class ApiStack(cdk.Stack):
         tables["idempotency"].grant_read_write_data(self.order_fn)
         event_bus.grant_put_events_to(self.order_fn)
 
+        # Allow the order service to start SAGA executions. Scoped to the derived
+        # ARN so there's still no cross-stack reference back to SagaStack.
+        self.order_fn.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution"],
+                resources=[saga_state_machine_arn],
+            )
+        )
+
         # ----------------------------------------------------------------
         # Inventory Service
         # ----------------------------------------------------------------
@@ -85,7 +119,7 @@ class ApiStack(cdk.Stack):
             function_name="cloudflow-inventory-service",
             runtime=LAMBDA_RUNTIME,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../services/inventory_service"),
+            code=_lambda.Code.from_asset(_service_asset("inventory_service")),
             layers=[shared_layer],
             environment=common_env,
             tracing=_lambda.Tracing.ACTIVE,
@@ -117,7 +151,7 @@ class ApiStack(cdk.Stack):
             function_name="cloudflow-payment-service",
             runtime=LAMBDA_RUNTIME,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../services/payment_service"),
+            code=_lambda.Code.from_asset(_service_asset("payment_service")),
             layers=[shared_layer],
             environment={**common_env, "PAYMENT_PROVIDER_SECRET_NAME": payment_provider_secret.secret_name},
             tracing=_lambda.Tracing.ACTIVE,
@@ -140,7 +174,7 @@ class ApiStack(cdk.Stack):
             function_name="cloudflow-notification-service",
             runtime=LAMBDA_RUNTIME,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../services/notification_service"),
+            code=_lambda.Code.from_asset(_service_asset("notification_service")),
             layers=[shared_layer],
             environment={**common_env, "NOTIFICATION_TOPIC_ARN": notification_topic.topic_arn},
             tracing=_lambda.Tracing.ACTIVE,
@@ -170,7 +204,7 @@ class ApiStack(cdk.Stack):
             function_name="cloudflow-dlq-processor",
             runtime=LAMBDA_RUNTIME,
             handler="handler.handler",
-            code=_lambda.Code.from_asset("../services/dlq_processor"),
+            code=_lambda.Code.from_asset(_service_asset("dlq_processor")),
             layers=[shared_layer],
             environment={"LOG_LEVEL": "ERROR", "POWERTOOLS_SERVICE_NAME": "cloudflow-dlq"},
             tracing=_lambda.Tracing.ACTIVE,
@@ -201,7 +235,7 @@ class ApiStack(cdk.Stack):
                 stage_name="v1",
                 access_log_destination=apigw.LogGroupLogDestination(log_group),
                 access_log_format=apigw.AccessLogFormat.json_with_standard_fields(
-                    calling_user=True,
+                    caller=True,
                     http_method=True,
                     ip=True,
                     protocol=True,

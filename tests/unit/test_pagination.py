@@ -9,7 +9,6 @@ import time
 import uuid
 
 import boto3
-import pytest
 from moto import mock_aws
 
 sys.path.insert(0, "services")
@@ -37,7 +36,7 @@ def test_event_history_returns_paginated_dict(aws_env):
     _create_orders_table(client)
 
     from order_service.repository import OrderRepository
-    from shared.events import OrderItem, OrderStatus
+    from shared.events import OrderItem
 
     repo = OrderRepository()
     order_id = str(uuid.uuid4())

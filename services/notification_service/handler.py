@@ -19,7 +19,6 @@ SQS visibility timeout vs Lambda timeout:
 from __future__ import annotations
 
 import json
-import logging
 import os
 
 import boto3
@@ -29,7 +28,7 @@ from shared.idempotency import IdempotencyKey, idempotent
 
 patch_all()
 
-from shared.logger import get_logger
+from shared.logger import get_logger  # noqa: E402  (must follow patch_all)
 logger = get_logger(__name__)
 
 SNS_TOPIC_ARN = os.environ.get("NOTIFICATION_TOPIC_ARN", "")

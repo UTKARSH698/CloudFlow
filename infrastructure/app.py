@@ -55,10 +55,8 @@ MonitoringStack(
     env=env,
 )
 
-# Update the Order Service lambda with the SAGA state machine ARN (circular dep avoided)
-api_stack.order_fn.add_environment(
-    "SAGA_STATE_MACHINE_ARN", saga_stack.state_machine.state_machine_arn
-)
-saga_stack.state_machine.grant_start_execution(api_stack.order_fn)
+# The order service's SAGA_STATE_MACHINE_ARN and StartExecution grant are wired
+# inside ApiStack from the state machine's fixed name, which keeps the
+# dependency one-directional (SagaStack -> ApiStack) and avoids a cyclic ref.
 
 app.synth()

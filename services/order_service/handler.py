@@ -12,7 +12,6 @@ All business logic lives in the repository and shared utilities.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import uuid
 
@@ -29,7 +28,7 @@ from .repository import OrderRepository
 # Patch boto3 clients for X-Ray distributed tracing
 patch_all()
 
-from shared.logger import get_logger
+from shared.logger import get_logger  # noqa: E402  (must follow patch_all)
 logger = get_logger(__name__)
 
 EVENT_BUS_NAME = os.environ["EVENT_BUS_NAME"]

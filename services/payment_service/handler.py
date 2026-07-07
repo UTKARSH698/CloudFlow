@@ -15,8 +15,6 @@ Why the circuit breaker lives in the payment service specifically:
 """
 from __future__ import annotations
 
-import json
-import logging
 import os
 import uuid
 from datetime import datetime, timezone
@@ -30,7 +28,7 @@ from shared.idempotency import idempotent
 
 patch_all()
 
-from shared.logger import get_logger
+from shared.logger import get_logger  # noqa: E402  (must follow patch_all)
 logger = get_logger(__name__)
 
 PAYMENTS_TABLE = os.environ.get("PAYMENTS_TABLE", "cloudflow-payments")

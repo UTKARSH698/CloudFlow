@@ -8,9 +8,7 @@ Thin wrappers around boto3 that handle common patterns:
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from decimal import Decimal
 from typing import Any
 

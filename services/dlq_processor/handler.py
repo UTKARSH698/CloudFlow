@@ -17,7 +17,6 @@ Design: this is intentionally NOT a retry mechanism. Messages arrive here becaus
 from __future__ import annotations
 
 import json
-import os
 
 from shared.logger import get_logger
 

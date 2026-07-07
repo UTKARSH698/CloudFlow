@@ -30,6 +30,11 @@ from aws_cdk import aws_stepfunctions as sfn
 from aws_cdk import aws_stepfunctions_tasks as tasks
 from constructs import Construct
 
+# Deterministic name so the order service can construct the state machine ARN
+# without a cross-stack CloudFormation reference (which would create a cycle:
+# SagaStack already depends on ApiStack's lambdas).
+SAGA_STATE_MACHINE_NAME = "cloudflow-order-saga"
+
 
 class SagaStack(cdk.Stack):
     def __init__(self, scope, id: str, *, tables, queues, lambdas, **kwargs):
@@ -116,14 +121,16 @@ class SagaStack(cdk.Stack):
         order_confirmed = sfn.Succeed(self, "OrderConfirmed")
         order_failed = sfn.Fail(self, "OrderFailed", cause="SAGA compensation complete")
 
+        # Both failure paths (payment-failed and inventory-failed) converge on
+        # this notify → fail sequence. A state can only have one outgoing
+        # transition, so wire notify_failed → order_failed exactly once and let
+        # each branch route *into* notify_failed.
+        notify_failed.next(order_failed)
+
         # ----------------------------------------------------------------
         # Compensation path: release inventory → notify → fail
         # ----------------------------------------------------------------
-        compensation_chain = (
-            release_inventory
-            .next(notify_failed)
-            .next(order_failed)
-        )
+        compensation_chain = release_inventory.next(notify_failed)
 
         # ----------------------------------------------------------------
         # Choice: did charge succeed?
@@ -159,7 +166,6 @@ class SagaStack(cdk.Stack):
             ).next(
                 sfn.Pass(self, "NoInventoryToRelease")
                 .next(notify_failed)
-                .next(order_failed)
             )
         )
 
@@ -176,7 +182,7 @@ class SagaStack(cdk.Stack):
 
         self.state_machine = sfn.StateMachine(
             self, "OrderSagaStateMachine",
-            state_machine_name="cloudflow-order-saga",
+            state_machine_name=SAGA_STATE_MACHINE_NAME,
             definition_body=sfn.DefinitionBody.from_chainable(reserve_inventory),
             timeout=cdk.Duration.minutes(5),
             tracing_enabled=True,

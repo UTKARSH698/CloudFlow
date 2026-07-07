@@ -9,7 +9,6 @@ records, reservation records — all hitting a real (emulated) AWS service.
 
 Run: USE_LOCALSTACK=true pytest tests/integration/ -m integration
 """
-import json
 import os
 import sys
 import uuid

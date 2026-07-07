@@ -23,7 +23,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
 
 from shared.dynamodb import decimal_to_python, get_table, put_item_with_optimistic_lock
 from shared.events import OrderItem, OrderStatus

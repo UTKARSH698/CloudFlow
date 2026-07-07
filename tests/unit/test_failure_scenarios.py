@@ -259,7 +259,7 @@ def test_circuit_reopens_if_probe_fails(aws_env):
     client = boto3.client("dynamodb", region_name="us-east-1")
     _create_tables(client)
 
-    from shared.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitState
+    from shared.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
     cb = CircuitBreaker("test-reopen", failure_threshold=2, timeout_seconds=1)
     cb.reset()
