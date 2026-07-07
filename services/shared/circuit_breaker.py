@@ -37,6 +37,11 @@ _CB_TABLE_DEFAULT = "cloudflow-circuit-breakers"
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+def _to_int(value: Any) -> int:
+    """Coerce a DynamoDB numeric attribute (returned as Decimal) to int."""
+    return int(value)
+
+
 class CircuitState(str, Enum):
     CLOSED = "CLOSED"
     OPEN = "OPEN"
@@ -102,7 +107,7 @@ class CircuitBreaker:
             result = fn(*args, **kwargs)
             self._record_success(state)
             return result
-        except Exception as exc:
+        except Exception:
             self._record_failure(state)
             raise
 
@@ -139,7 +144,7 @@ class CircuitBreaker:
                 ExpressionAttributeValues={":one": 1},
                 ReturnValues="UPDATED_NEW",
             )
-            new_successes = int(resp["Attributes"]["success_count"])
+            new_successes = _to_int(resp["Attributes"]["success_count"])
             if new_successes >= self.success_threshold:
                 # Guard the close on still being HALF_OPEN so a concurrent
                 # failure that re-opened the circuit isn't clobbered.
@@ -180,7 +185,7 @@ class CircuitBreaker:
             ExpressionAttributeValues={":one": 1},
             ReturnValues="UPDATED_NEW",
         )
-        new_failures = int(resp["Attributes"]["failure_count"])
+        new_failures = _to_int(resp["Attributes"]["failure_count"])
 
         # A failed probe in HALF_OPEN, or crossing the threshold while CLOSED,
         # trips the breaker. Guard on "not already OPEN" so only the first
