@@ -30,3 +30,7 @@ localstack_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local tooling artifacts
+.claude/
+cdk.out/

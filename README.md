@@ -44,7 +44,7 @@
 | [Security](#security) | Input validation, IAM least-privilege, no secrets in code |
 | [How To Run Locally](#quick-start) | Setup + test commands (Windows & Linux) |
 | [API Reference](#api-reference) | Request/response examples for all 4 outcome types |
-| [Known Limitations](#known-limitations) | Open consistency question + honest design boundaries |
+| [Known Limitations](#known-limitations) | Known consistency gap + honest design boundaries |
 | [TECHNICAL.md](./TECHNICAL.md) | 8-section deep-dive for full architecture analysis |
 | [Author](#author) | Background + links |
 
@@ -339,7 +339,7 @@ consistency only where business rules require it, eventual consistency everywher
 | Threat | Where It Bites | Mitigation | Tested |
 |---|---|---|---|
 | **Duplicate requests** | SQS delivers at-least-once; client retries | DynamoDB idempotency table — `attribute_not_exists` atomic check-and-set per `order_id` | `test_duplicate_reservation_is_idempotent` |
-| **Slow / failed payment API** | One hung provider call blocks the thread; cascade to all orders | Circuit breaker (state in DynamoDB, survives Lambda cold starts) — opens after 3 failures, fast-fails for 60s | `test_circuit_breaker_open_fast_fails` |
+| **Slow / failed payment API** | One hung provider call blocks the thread; cascade to all orders | Circuit breaker (state in DynamoDB, survives Lambda cold starts) — opens after 5 consecutive failures, fast-fails for 60s | `test_circuit_breaker_open_fast_fails` |
 | **Stock oversell** | Two threads reserve the last item simultaneously | DynamoDB conditional write — `quantity >= requested` enforced atomically; one wins, one gets `ConditionalCheckFailedException` | `test_reserve_fails_on_insufficient_stock` |
 | **Partial saga failure** | Lambda crashes between reserve and charge | Step Functions checkpoints each step — retries from last successful state, never from the beginning | Compensation path integration tests |
 | **Forged / tampered order** | Client sends manipulated `total_cents` or negative quantity | Pydantic validation rejects at API boundary; amounts recalculated server-side, never trusted from input | Input validation schema |
@@ -387,7 +387,7 @@ cloudflow/
 ├── infrastructure/              # AWS CDK (Python) — all cloud resources as code
 │   └── cloudflow/
 │       ├── api_stack.py         # API Gateway + Order Service Lambda
-│       ├── database_stack.py    # DynamoDB tables (5 tables)
+│       ├── database_stack.py    # DynamoDB tables (6 tables)
 │       ├── messaging_stack.py   # SQS queues + EventBridge bus
 │       ├── saga_stack.py        # Step Functions state machine (SAGA)
 │       └── monitoring_stack.py  # CloudWatch dashboards + alarms
@@ -954,19 +954,17 @@ These are documented design boundaries — honest accounts of what the system do
 
 | Limitation | Root Cause | What Would Be Needed |
 |---|---|---|
-| **Compensation-state consistency is not formally proved** — compensating transactions are designed so partial rollback cannot produce an exploitable inconsistent state, but this property is verified by test coverage, not by proof | No formal model of the compensation state space; correctness argued by case analysis over the failure modes I could construct | A formal specification of the SAGA state machine (e.g. in TLA+) with a proof that every reachable compensation path terminates in a consistent state |
+| **Compensation-state consistency is verified by tests, not exhaustively** — compensating transactions are designed so partial rollback cannot produce an exploitable inconsistent state, but this is checked by the failure-scenario tests, not by an exhaustive model of every path | Correctness is argued by case analysis over the failure modes covered in `tests/`, not over the full compensation state space | Enumerate the compensation state space explicitly and add tests (or a model-based check) for the paths not currently exercised |
 | **Concurrent in-flight calls aren't serialized when the circuit is `CLOSED`** — two invocations can both read `CLOSED` and both make the external call before the breaker trips. The failure counter and state transitions are now race-free (atomic `ADD` + guarded conditional writes, so no lost increments and no clobbered transitions), but the breaker still can't retroactively cancel calls already in flight | Preventing concurrent in-flight calls requires serializing on the circuit item itself, which any distributed circuit breaker trades off against throughput | A leaky-bucket / concurrency-limit token acquired before each call, or accepting the small window of extra calls as the cost of not serializing every payment |
-| **No cross-service idempotency** — idempotency is enforced per-service (Order, Inventory, Payment each have their own idempotency table), but a request that passes Order idempotency and fails mid-SAGA may replay Inventory with a different key | Idempotency keys are scoped to each service handler independently | A saga-level idempotency token propagated through Step Functions input that each downstream service checks before executing |
+| **No saga-level idempotency token** — all services share one idempotency table, but each handler derives its own key (`charge-{order_id}`, `refund-{payment_id}`, the API `Idempotency-Key` header for order creation). There is no single token propagated across the whole SAGA, so a request that passes Order idempotency and fails mid-SAGA can re-run downstream steps under a different key | Idempotency keys are derived independently per handler rather than threaded through the execution | A saga-level idempotency token propagated through Step Functions input that each downstream service checks before executing |
 | **Step Functions execution history is lost after 90 days** — audit trail for long-running investigations relies on CloudWatch logs, not Step Functions | AWS hard limit on execution history retention | Export execution history to S3 on completion; query via Athena for investigations beyond 90 days |
 | **LocalStack behaviour diverges from real AWS under concurrency** — load test results (1,100+ req/min, P99 < 120ms) were measured on LocalStack; real DynamoDB provisioned throughput and Lambda cold start distributions will differ | LocalStack is an approximation; network latency and AWS throttling are not modelled | Re-run load tests on a real AWS account with provisioned DynamoDB capacity and compare P99 tail latencies |
 
-### The Open Consistency Question
+### A Known Consistency Gap
 
-The core security-relevant open question in CloudFlow is whether the SAGA compensation design is **exhaustively safe** — not just safe for the failure modes I tested.
+One design question worth calling out: the SAGA compensation is tested for the failure modes above, but not proven safe for every partial-compensation ordering.
 
-Specifically: can a partial compensation path (where some compensating transactions succeed and others fail mid-compensation) produce a state that is internally consistent from each service's perspective but globally inconsistent — and exploitable? My design argues no, because each compensating transaction is idempotent and Step Functions retries failed compensation steps. But this argument relies on the assumption that Step Functions will eventually deliver every compensation step successfully, which is not guaranteed under all failure modes (e.g. Step Functions service disruption mid-compensation).
-
-This is the same class of problem as the CSPM remediation completeness question — the gap between per-component correctness and system-level safety guarantees. Both motivate the same research direction: formal verification of distributed security policies.
+Specifically: if some compensating transactions succeed and others fail mid-compensation, could the system land in a state that each service considers consistent but that is globally inconsistent? The design argues no — each compensating transaction is idempotent and Step Functions retries failed compensation steps. That argument depends on Step Functions eventually delivering every compensation step, which is not guaranteed under all failure modes (e.g. a Step Functions service disruption mid-compensation). Closing this gap fully would mean enumerating those partial-failure orderings and adding coverage for the ones the current tests don't exercise.
 
 ---
 
